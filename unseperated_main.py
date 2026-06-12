@@ -1,9 +1,4 @@
 # -*- coding: utf-8 -*-
-
-#===================================================================
-# CONFIGURATION
-#=================================================================== 
-
 from pathlib import Path
 
 import os
@@ -32,6 +27,7 @@ else:
 # 3. 
 chunk_dir = data_dir / "chunkResults"
 graph_dir = data_dir / "graphs"
+
 # ________________________________________________________-
 # analysis_from_chunks.py
 #
@@ -93,7 +89,7 @@ import copy
 import gc
 import numbers
 # Q-Q plot: Are simulated quantiles matching historical?
-# probplot(hist_vals, dist=('norm', np.mean(sim_vals), np.std(sim_vals)))
+# probplot(hist_vals, dist=('norm', np.nanmean(sim_vals), np.nanstd(sim_vals)))
 
 # #===================================================================
 # Internal helpers
@@ -404,7 +400,7 @@ def wealthGapDistribution(chunk_folder: str, households: list, V_num,
         rows.append({
             "Comparison":        label,
             "Median Gap":        f"{np.median(gaps):.1%}",
-            "Mean Gap":          f"{np.mean(gaps):.1%}",
+            "Mean Gap":          f"{np.nanmean(gaps):.1%}",
             "5th Pct":           f"{np.percentile(gaps, 5):.1%}",
             "95th Pct":          f"{np.percentile(gaps, 95):.1%}",
             "P(Gap > 0)":        f"{prob_positive[label]:.1%}",
@@ -629,7 +625,7 @@ def run_multi_band_analysis(
     if verbose:
         for h in households:
             print(f"  [{h}] {len(hist_one_year[h])} historical rolling windows. "
-                  f"Mean: {np.mean(hist_one_year[h]):.2%}")
+                  f"Mean: {np.nanmean(hist_one_year[h]):.2%}")
 
     # ------------------------------------------------------------------
     # STREAMING PASS
@@ -941,7 +937,7 @@ def _crps_single(forecast_samples: np.ndarray, actual: float) -> float:
     s = np.sort(forecast_samples)
     n = len(s)
     # E_F|X - y|: mean absolute deviation of forecast from observation
-    term1 = np.mean(np.abs(s - actual))
+    term1 = np.nanmean(np.abs(s - actual))
     # 0.5 * E_F|X - X'|: spread of forecast (using the efficient formula)
     # = (1/n^2) * sum_i sum_j |s_i - s_j| / 2
     # Efficient O(n log n): after sorting, E|X-X'| = (2/n^2) sum_i s_i*(2i-n-1)
@@ -1133,7 +1129,7 @@ def run_combined_analysis(
     if verbose:
         for h in households:
             print(f"  [{h}] {len(hist_one_year[h])} historical rolling windows. "
-                  f"Mean: {np.mean(hist_one_year[h]):.2%}")
+                  f"Mean: {np.nanmean(hist_one_year[h]):.2%}")
 
     # ------------------------------------------------------------------
     # STREAMING PASS
@@ -1301,7 +1297,7 @@ def back_Test_pass_fail_results(households, hist_one_year, sim_one_year, backtes
         backtest_rows.append({
             "Household":     h,
             "Hist Windows":  len(hist_vals),
-            "Hist Mean 1Y":  f"{np.mean(hist_vals):.2%}",
+            "Hist Mean 1Y":  f"{np.nanmean(hist_vals):.2%}",
             "Hist 5th pct":  f"{np.percentile(hist_vals, 5):.2%}",
             "Hist 95th pct": f"{np.percentile(hist_vals, 95):.2%}",
             "Sim 5th pct":   f"{sim_lo:.2%}",
@@ -1497,7 +1493,7 @@ def crps(forecast_samples, actual):
 #     crps_scores = []
 #     for hist_return in historical_returns[h][:100]:  # Sample for speed
 #         crps_scores.append(crps(simulated_returns[h], hist_return))
-#     print(f"{h}: Mean CRPS = {np.mean(crps_scores):.4f}")
+#     print(f"{h}: Mean CRPS = {np.nanmean(crps_scores):.4f}")
 
 
 #===================================================================
@@ -1564,7 +1560,7 @@ def houseCumSampleWithSigmaBanded(assetRes, time, households, makeTable=False):
         plottingList[h].append(path[-1])
       sampleSummaryRows.append({
           "Household": h,
-          "Std of Paths Cumulative Return": np.std(plottingList[h]),
+          "Std of Paths Cumulative Return": np.nanstd(plottingList[h]),
           "Maximum Return": max(plottingList[h]),
           "Minimum Return": min(plottingList[h])
       })
@@ -1582,7 +1578,7 @@ def assetClassVolatility(fullSavedAssetRes):
     colourList = []
     labelList = []
     for assetClass in fullSavedAssetRes['sigmaAssetClassPath']:
-      sigmaList.append(np.mean(fullSavedAssetRes['sigmaAssetClassPath'][assetClass]))
+      sigmaList.append(np.nanmean(fullSavedAssetRes['sigmaAssetClassPath'][assetClass]))
       labelList.append(f"{assetClass}")
     return {
        "raw": {
@@ -1608,8 +1604,8 @@ def getHouseholdVolTable(aggRes, households):
     for path in sigma:
        
        assert len(path) > 500, "Nominal path in getHouseholdVolAnalysis is not a path"
-       meanLists[h].append(np.mean(path))
-       stdLists[h].append(np.std(path))
+       meanLists[h].append(np.nanmean(path))
+       stdLists[h].append(np.nanstd(path))
        p5_lists[h].append(np.nanpercentile(path, 5))
        p95_lists[h].append(np.nanpercentile(path, 95))
        sigma_list[h].append(path)
@@ -1617,12 +1613,12 @@ def getHouseholdVolTable(aggRes, households):
     houseVolatilityRows.append({
             "Household": h,
             # "Final Volatility": sigma[-1],
-            "(Mean Path) Mean Volatility": np.mean(single_sigma_path),
-            "(Mean Path) Std of Volatility": np.std(single_sigma_path),
-            "Std of Path Mean Volatilities": np.std(meanLists[h]),
+            "(Mean Path) Mean Volatility": np.nanmean(single_sigma_path),
+            "(Mean Path) Std of Volatility": np.nanstd(single_sigma_path),
+            "Std of Path Mean Volatilities": np.nanstd(meanLists[h]),
         })
-    meanPath[h] = np.mean(sigma_list[h], axis=0)
-    pathStd[h] = np.std(sigma_list[h])
+    meanPath[h] = np.nanmean(sigma_list[h], axis=0)
+    pathStd[h] = np.nanstd(sigma_list[h])
   houseVolTable = pd.DataFrame(houseVolatilityRows)
   #sort
   houseVolTable = houseVolTable.sort_values(by=["Household"]).reset_index(drop=True)
@@ -1656,8 +1652,8 @@ def getHouseholdVolTable(aggRes, households):
 #     houseVolatilityRows.append({
 #             "Household": h,
 #             "Final Volatility": sigma[-1],
-#             "Mean Volatility": np.mean(sigma),
-#             "Std of Volatility": np.std(sigma)
+#             "Mean Volatility": np.nanmean(sigma),
+#             "Std of Volatility": np.nanstd(sigma)
 #         })
 #     sigmaDict[h] = sigma
 #   houseVolTable = pd.DataFrame(houseVolatilityRows)
@@ -1690,8 +1686,8 @@ def getAssetVolTable(fullSavedAssetRes, makeTable=False):
       assetVolatilityRows.append({
           "Asset Class": assetClass,
           "Final Volatility": sigma[-1],
-          "Mean Volatility": np.mean(sigma),
-          "Std of Volatility": np.std(sigma)
+          "Mean Volatility": np.nanmean(sigma),
+          "Std of Volatility": np.nanstd(sigma)
         })
       sigmaDict[assetClass] = sigma
       assetClasses.append(assetClass)
@@ -1731,7 +1727,7 @@ def meanHousePath(aggRes, households):
     meanSummaryRows.append({
           "Household": h,
           "Final Return": finalVals[h],
-          # "Std of Paths Cumulative Return": np.std(finalVals[h]),
+          # "Std of Paths Cumulative Return": np.nanstd(finalVals[h]),
           # "Maximum Return": ,
           # "Minimum Return": min(plottingList[h])
       })
@@ -2044,8 +2040,8 @@ def get_metric_analysis(
   house_vol_results = getHouseholdVolTable(aggRes, households)
   asset_class_vol_results = assetClassVolatility(asset_level_res) #Not a DF, two lists
   back_test_results = back_Test_pass_fail_results(households, hist_one_year, sim_one_year, 
-                                                  backtest_pass_threshold=0.85, sim_low_pct=0.5, 
-                                                  sim_high_pct=0.95, verbose=debugMetrics)
+                                                  backtest_pass_threshold=backtest_pass_threshold, sim_low_pct=sim_low_pct, 
+                                                  sim_high_pct=sim_high_pct, verbose=debugMetrics)
 
   presentingAssetReturns = get_presentingAssetReturns(asset_level_res, households, assets_completed)
   gap_geometric_results = get_gap_geometric(presentingAssetReturns)
@@ -2323,7 +2319,7 @@ def assetClassVolatilityBar(graphFigSize, fullSavedAssetRes, assetClassColours, 
   colourList = []
   labelList = []
   for assetClass in fullSavedAssetRes['sigmaAssetClassPath']:
-    sigmaList.append(np.mean(fullSavedAssetRes['sigmaAssetClassPath'][assetClass]))
+    sigmaList.append(np.nanmean(fullSavedAssetRes['sigmaAssetClassPath'][assetClass]))
     labelList.append(f"{assetClass}")
 
     colourList.append(assetClassColours[assetClass])
@@ -2555,12 +2551,12 @@ def getWeightsTable(inputs, graphHeight):
       houseTable.append({
                               'Asset Class': assetClass,
                               # 'Asset': ticker,
-                              'Household 80-100 Weights': np.mean(highWeights),
-                              'Household 40-59 Weights': np.mean(midWeights),
-                              'Household 0-20 Weights': np.mean(lowWeights),
+                              'Household 80-100 Weights': np.nanmean(highWeights),
+                              'Household 40-59 Weights': np.nanmean(midWeights),
+                              'Household 0-20 Weights': np.nanmean(lowWeights),
                               # 'Optimal Weights': optWeightsFlat[i] if i < len(optWeightsFlat) else np.nan,
-                              'Difference': np.mean(Difference1), #if not np.isnan(optW) else np.nan,
-                              'Differences': np.mean(Difference2)#, if not np.isnan(optW) else np.nan
+                              'Difference': np.nanmean(Difference1), #if not np.isnan(optW) else np.nan,
+                              'Differences': np.nanmean(Difference2)#, if not np.isnan(optW) else np.nan
                               })
 
 
@@ -3161,8 +3157,51 @@ def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results,
 
     # ================================================================================
   
-  
 
+import numpy as np
+print(arch.__version__)
+
+
+import datetime as dt
+
+
+import pandas as pd
+# from google.colab import files
+# import pandas_datareader.data as web
+from arch import arch_model
+
+import os
+import pickle
+import numpy as np
+import gc
+import pickle
+# from google.colab import drive
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.pyplot
+import matplotlib.cm as cm
+import numpy as np
+import datetime as dt
+from matplotlib.ticker import PercentFormatter
+import matplotlib.pyplot as plt
+import matplotlib
+import matplotlib.ticker as mtick
+from matplotlib.ticker import PercentFormatter
+# !pip install scipy
+from scipy.optimize import minimize
+from scipy.stats import t as studentT
+
+import arch
+import warnings
+from arch.utility.exceptions import DataScaleWarning
+from arch.utility.exceptions import ConvergenceWarning
+
+import io # Import the io module
+from numba import njit
+import numpy as np
+import pandas as pd
+import os
+import pickle
 
 # =============================================================================================================================================
 
@@ -3189,11 +3228,7 @@ optRun = False
 debugLocal = True # shorter run
 from matplotlib.ticker import PercentFormatter
 def setup():
-  from numba import njit
-  import numpy as np
-  import pandas as pd
-  import os
-  import pickle
+  
 #   from google.colab import drive
 #   drive.mount('/content/drive')
   debugLite = False
@@ -3273,28 +3308,7 @@ def setup():
 
 
   reRun = 1
-  if reRun == 1:
-    import os
-    import pickle
-    import numpy as np
-    import gc
-    import pickle
-    # from google.colab import drive
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import matplotlib.pyplot
-    import matplotlib.cm as cm
-    import numpy as np
-    import datetime as dt
-    from matplotlib.ticker import PercentFormatter
-  import matplotlib.pyplot as plt
-  import matplotlib
-  import matplotlib.ticker as mtick
-  from matplotlib.ticker import PercentFormatter
-  # !pip install scipy
-  from scipy.optimize import minimize
-  from scipy.stats import t as studentT
-  # !pip install warnings
+ # !pip install warnings
   # !pip install arch.utility
   # import warnings
   # from arch.utility.exceptions import DataScaleWarning
@@ -3348,10 +3362,7 @@ def setup():
 
     # !pip install warnings
     # !pip install arch.utility
-    import arch
-    import warnings
-    from arch.utility.exceptions import DataScaleWarning
-    from arch.utility.exceptions import ConvergenceWarning
+    
     warnings.simplefilter("ignore", DataScaleWarning)
     warnings.simplefilter("ignore", FutureWarning)
     warnings.simplefilter("ignore", ConvergenceWarning)
@@ -3364,22 +3375,6 @@ def setup():
     os.environ["TQDM_DISABLE"] = "1"
 
 
-    import numpy as np
-    print(arch.__version__)
-
-
-    import datetime as dt
-
-
-    import pandas as pd
-    # from google.colab import files
-    # import pandas_datareader.data as web
-    from arch import arch_model
-
-
-
-
-  import io # Import the io module
 
 
   # if 10 == 1:
@@ -3516,7 +3511,7 @@ def setup():
   households = ["80-100", "40-59", "0-20"] #, HouseName]
   # assetClass = ["Equities", "Bonds Short", "Bonds Long", "Property", "Deposits"]
 
-
+  
   assetWeights = {
       "80-100": {
           "Equities": {
@@ -3715,6 +3710,99 @@ def setup():
       #         'Agreed Maturity UK':
       #     }
       #     }
+    #===================================================================
+  # CONFIGURATION
+  #=================================================================== 
+
+  
+
+  structure = {
+      "dict_arr_1": "dict of 1d arrays", 
+      "dict_arr_2": "dict of 2d arrays", 
+      "dict_s": "dict of scalars", 
+      "df": "dataframe", 
+      "l_dict_s": "list of dicts of scalars (prob. pairs)",
+      "nest_dict_s": "nested_dict_of_scalars",
+  }
+
+  domain = {"ts": "time_series",
+            "p": "mc_paths",
+            "a": "aggregation"
+  }
+  
+  metric_config = {
+      "gap_results": {
+          "target": "pairs",
+          "structure": "dict_arr_1",
+          "domain": "p",
+          "metrics": ["mean", "med", "std", "p5", "p95", "len"]
+
+      },
+      "band_results": {
+          "target": "coverage_raw",
+          "structure": "nest_dict_s",
+          "domain": "a",
+          "metrics": ["mean", "med", "std", "len", "raw"]
+
+      },
+      "crps_results": {
+          "target": "crps_scores",
+          "structure": "dict_s",
+          "domain": "a",
+          "metrics": ["mean", "med", "std", "len", "raw"]
+
+      },
+      "convergence_results": {
+          "target": "convergence_raw",
+          "structure": "l_dict_s",
+          "domain": "a",
+          "metrics": ["std", "len", "raw"]
+
+      },
+      "back_test_results": {
+          "target": "backtest_df",
+          "structure": "df",
+          "domain": "a",
+          "metrics": ["mean", "med", "std", "raw"]
+
+      },
+      "house_cum_results": {
+          "target": "plottingList",
+          "structure": "dict_arr_1",
+          "domain": "p",
+          "metrics": ["mean", "med", "std", "p5", "p95", "len"]
+
+      },
+      "asset_vol_results": {
+          "target": "sigmaDict",
+          "structure": "dict_arr_1",
+          "domain": "a",
+          "metrics": ["mean", "med", "std", "p5", "p95"]
+
+      },
+      "house_vol_results": {
+          "target": "house_vol_df",
+          "structure": "df",
+          "domain": "a",
+          "metrics": ["raw"]
+
+      },
+      "mean_household_results": {
+          "target": "meanPath",
+          "structure": "dict_arr_1",
+          "domain": "a",
+          "metrics": ["terminal", "std", "raw"]
+
+      },
+    
+      "name": {
+          "target": "",
+          "structure": "",
+          "domain": "",
+          "metrics": ["mean", "med", "std", "p5", "p95", "len", "raw", "terminal"]
+
+      },
+  }
 
 
 
@@ -3819,7 +3907,30 @@ def setup():
           }
           }
   corrAbleClasses = ["Equities", "Bonds Short", "Bonds Long", 'Business Wealth']
-  return assetsCompleted, assetsYahoo, assets, assetWeights, households, time, folder, chunkFolder, fullSavedAssetRes, corrAbleClasses
+  # return {
+  #   "assetWeights": assetWeights,
+  #   "metric_config": metric_config,
+  #   "chunk_dir": chunk_dir,
+  #   "graph_dir": graph_dir,
+    
+  # }
+  return {
+      "assetsCompleted": assetsCompleted, 
+      "assetsYahoo":assetsYahoo, 
+      "assets":assets, 
+      "assetWeights":assetWeights, 
+      "households": households, 
+      "time": time, 
+      "folder": folder,
+      "chunkFolder": chunkFolder, 
+      "fullSavedAssetRes": fullSavedAssetRes, 
+      "corrAbleClasses": corrAbleClasses, 
+      "metric_config": metric_config, 
+      "chunk_dir": chunk_dir, 
+      "graph_dir":graph_dir, 
+      "data_dir": data_dir, 
+      "scenarios": scenarios, 
+      "inputParameters": inputParameters}
 
   # setup: takes (), returns: assetsCompleted, assetsYahoo, assets, assetWeights, households, time, folder, chunkFolder
 
@@ -3983,7 +4094,7 @@ def aggregate_to_asset_paths(nTotalPaths, V_num):
                       if len(hPaths) == 0:
                           continue
 
-                      r = np.mean(np.stack(hPaths), axis=0)
+                      r = np.nanmean(np.stack(hPaths), axis=0)
 
                       if debug and pathCounter < 5:
                           print(
@@ -3991,9 +4102,9 @@ def aggregate_to_asset_paths(nTotalPaths, V_num):
                               assetClass,
                               ticker,
                               "mean weighted:",
-                              np.mean(weighted_r),
+                              np.nanmean(weighted_r),
                               "mean recovered:",
-                              np.mean(r)
+                              np.nanmean(r)
                           )
 
                       # -----------------------------------------
@@ -4037,7 +4148,7 @@ def aggregate_to_asset_paths(nTotalPaths, V_num):
                   if len(tickerReturns) == 0:
                       continue
 
-                  classReturn = np.mean(np.stack(tickerReturns), axis=0)
+                  classReturn = np.nanmean(np.stack(tickerReturns), axis=0)
 
                   if assetClass not in meanAssetClassPath:
 
@@ -4178,7 +4289,7 @@ def aggregate_to_asset_paths(nTotalPaths, V_num):
           print(
               c,
               t,
-              np.mean(assetResults["meanAssetPath"][c][t])
+              np.nanmean(assetResults["meanAssetPath"][c][t])
           )
   return assetResults
 
@@ -4256,7 +4367,7 @@ def portfolioAggregation(assetWeights, fullSavedAssetRes, households, assetsComp
         portRet[h] += portAssetRetNew
         portSigmaSquare[h] += (portAssetWeight ** 2) * (sigma ** 2)
         # portCumR[h] += portAssetCumNew
-        print(f"{h} {np.mean(portRet[h])}")
+        print(f"{h} {np.nanmean(portRet[h])}")
       # print(household)
     portCumR[h] = np.cumprod(1 + portRet[h]) - 1
     portSigma[h] = np.sqrt(portSigmaSquare[h])
@@ -4281,8 +4392,8 @@ def portfolioAggregation(assetWeights, fullSavedAssetRes, households, assetsComp
       summaryRows.append({
           "Household": h,
           "Mean Cumulative Return": portCumR[h][-1],
-          "Mean Std Daily Return": np.mean(portSigma[h]),
-          "Mean Daily Return": np.mean(portRet[h]),
+          "Mean Std Daily Return": np.nanmean(portSigma[h]),
+          "Mean Daily Return": np.nanmean(portRet[h]),
           # "Lifetime Return (80)": np.cumprod(1 + )
       })
       summaryTable = pd.DataFrame(summaryRows)
@@ -4807,8 +4918,8 @@ if debug6 == True:
 
 
 if debug12 == True:
-  print(f"data for house prices HMR: mean {np.mean(dataHMR)} std {np.std(dataHMR)} [:50] {dataHMR[:50]}")
-  print(f"data for house prices non HMR: mean {np.mean(dataLand)} np.std {np.std(dataLand)} [:50] {dataLand[:50]}")
+  print(f"data for house prices HMR: mean {np.nanmean(dataHMR)} std {np.nanstd(dataHMR)} [:50] {dataHMR[:50]}")
+  print(f"data for house prices non HMR: mean {np.nanmean(dataLand)} np.nanstd {np.nanstd(dataLand)} [:50] {dataLand[:50]}")
 
 
 depositPricePath = data_dir / "CentralBankDepositData.xlsx" #"/content/drive/MyDrive/Young_Economist/CentralBankDepositData.xlsx" # from (B.1.1 CSV Central Bank retail intrest rates - deposits, outstanding amounts)
@@ -5189,7 +5300,7 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
   if debug == True:
     print(depositSeries)
   list(depositSeries)
-  depositRate = np.mean(depositSeries) / 100 / 252
+  depositRate = np.nanmean(depositSeries) / 100 / 252
 
 
   returnsDict = {}
@@ -5233,7 +5344,7 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
 
 
   def getMu(ticker, coeffsDict):
-      # muHist = np.mean(yf.download(ticker, start=start, end=end)['Close'].pct_change().dropna()) #for assetClass in assets for ticker_symbol in assets[assetClass]])
+      # muHist = np.nanmean(yf.download(ticker, start=start, end=end)['Close'].pct_change().dropna()) #for assetClass in assets for ticker_symbol in assets[assetClass]])
       for subheading, items in assets.items():
         if ticker in items:
           assetClass = subheading
@@ -5306,11 +5417,11 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
           # Calculated as simple returns
           returns = data['Close'].squeeze().pct_change().dropna()
           if debugBus == True:
-            print(f"proper, working {ticker} returns.shape {returns.shape}  mean {np.mean(returns)} returns[:50] {returns[:50]}")
+            print(f"proper, working {ticker} returns.shape {returns.shape}  mean {np.nanmean(returns)} returns[:50] {returns[:50]}")
 
 
-          # print("raw mean", np.mean(returns))
-          # print(" mean", np.mean(returns)/100)
+          # print("raw mean", np.nanmean(returns))
+          # print(" mean", np.nanmean(returns)/100)
           data = yf.download(ticker, start=start, end=end, progress=False)
           if debug == True:
             print("Woooooo over here **************************************************************************************", ticker, len(data))
@@ -5324,7 +5435,7 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
               smallCapData = yf.download('IEUS', start=start, end=end, progress=False)
               largeCap = largeCapData['Close'].squeeze().pct_change().dropna().squeeze()
               if debugBus == True:
-                print(f"WOOOO BEFORE CHANGING ===================== largeCap.shape {largeCap.shape} mean {np.mean(largeCap)} type {type(largeCap)} largeCap[:50] {largeCap[:50]}")
+                print(f"WOOOO BEFORE CHANGING ===================== largeCap.shape {largeCap.shape} mean {np.nanmean(largeCap)} type {type(largeCap)} largeCap[:50] {largeCap[:50]}")
               smallCap = smallCapData['Close'].squeeze().pct_change().dropna().squeeze()
               largeCap, smallCap = largeCap.align(smallCap, join='inner')
               if debugBus == True:
@@ -5337,8 +5448,8 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
               firstPsmall = smallCapData['Close'].squeeze().iloc[0]
               secondPsmall = smallCapData['Close'].squeeze().iloc[1]
               if debugBus == True:
-                print(f"largeCap.shape {largeCap.shape} mean {np.mean(largeCap)} type {type(largeCap)} largeCap[:50] {largeCap[:50]}")
-                print(f"smallCap.shape {smallCap.shape} mean {np.mean(smallCap)} smallCap[:50] {smallCap[:50]}")
+                print(f"largeCap.shape {largeCap.shape} mean {np.nanmean(largeCap)} type {type(largeCap)} largeCap[:50] {largeCap[:50]}")
+                print(f"smallCap.shape {smallCap.shape} mean {np.nanmean(smallCap)} smallCap[:50] {smallCap[:50]}")
               firstPLarge = float(largeCapData['Close'].squeeze().iloc[0])
               secondPLarge = float(largeCapData['Close'].squeeze().iloc[1])
               firstPsmall = float(smallCapData['Close'].squeeze().iloc[0])
@@ -5351,7 +5462,7 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
               # resGARCH = am.fit(disp='off', show_warning=False, options={"maxiter": 150})
 
               if debugBus == True:
-                print(f"returns.shape {returns.shape} type {type(returns)} mean {np.mean(returns)} returns[:50] {returns[:50]}")
+                print(f"returns.shape {returns.shape} type {type(returns)} mean {np.nanmean(returns)} returns[:50] {returns[:50]}")
 
 
       elif assetClass in assetsCompleted and assetClass != 'Business Wealth':
@@ -5367,16 +5478,16 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
               coeffsDict[assetClass][ticker]['histRetMonthly'] = returns2
               histRetMonthly = returns2
               if debug12 == True:
-                print(f"returns mean {np.mean(returns2)}")
+                print(f"returns mean {np.nanmean(returns2)}")
               if debug8 == True or debugVolatility2:
                 print(f"Returns 2 is {returns2}")
               # firstP and secondP are just placeholders, actual price series not used for GARCH directly
               if debugNew2:
                 histRetAlmost = returns2 / monthLength
-                print(f"Land HMR histRetAlmost mean: {np.mean(histRetAlmost):.6f}")
+                print(f"Land HMR histRetAlmost mean: {np.nanmean(histRetAlmost):.6f}")
 
                 histRet = np.repeat(histRetAlmost.values, monthLength)
-                print(f"Land HMR histRet mean: {np.mean(histRet):.6f}")
+                print(f"Land HMR histRet mean: {np.nanmean(histRet):.6f}")
                 print(f"Land HMR histRet length: {len(histRet)}")
               firstP = 100.0
               secondP = 100.0
@@ -5441,7 +5552,7 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
           beta1 = params_dict[ticker]['beta[1]']
           fitSigma = resGARCH.conditional_volatility / np.sqrt(monthLength)
           if debug8 == True:
-            print(f"initilisation of fitSigma for {ticker} mean {np.mean(fitSigma)}, first 20 {fitSigma[:20]}")
+            print(f"initilisation of fitSigma for {ticker} mean {np.nanmean(fitSigma)}, first 20 {fitSigma[:20]}")
             print(f"Alpha1 {alpha1}, beta1 {beta1}, sum {alpha1 + beta1}, omega {omega}")
 
 
@@ -5470,20 +5581,20 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
             if debug4 == True:
               print(f"{ticker}, histRet {histRet}")
             if debug12 == True:
-              print(f"histRet mean before padding {np.mean(histRet)}")
+              print(f"histRet mean before padding {np.nanmean(histRet)}")
             histRet = np.pad(histRet, (0, len(time) - adjustment - len(histRet)), mode='edge')
           # print("WOOOOO, histRet is here: ", histRet)
           # histRet = returns2
           if debug2 == True:
             print(f"histRet Len {asset} {assetClass} = ", len(histRet))
             print(f"HistRet in non yahooable, {asset} {assetClass} is ", histRet)
-          muHist = np.mean(histRetAlmost)
+          muHist = np.nanmean(histRetAlmost)
           # nonLogRet = returns2
-          # sigma = np.std(histRetAlmost) / np.sqrt(histRetAlmost)
+          # sigma = np.nanstd(histRetAlmost) / np.sqrt(histRetAlmost)
 
-          sigma = np.std(histRetMonthly)
+          sigma = np.nanstd(histRetMonthly)
           if debug12 == True:
-            print(f"returns 2 mean {ticker} {np.mean(returns2)}, histRetAlmost mean {np.mean(histRetAlmost)} histRet mean {np.mean(histRet)}")
+            print(f"returns 2 mean {ticker} {np.nanmean(returns2)}, histRetAlmost mean {np.nanmean(histRetAlmost)} histRet mean {np.nanmean(histRet)}")
           coeffsDict[assetClass][ticker] = {
               'omega': omega,
               'alpha1': alpha1,
@@ -5581,7 +5692,7 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
         print("Length of HistRet in yahooable is ", len(histRet))
         print("HistRet in yahooable is ", histRet)
       # print("WOOOOO, histRet is here: ", histRet)
-      muHist = np.mean(returns)
+      muHist = np.nanmean(returns)
       mu = muHist
       coeffsDict[assetClass][ticker] = {
           'omega': omega,
@@ -5609,13 +5720,13 @@ def runAssetSimul(ticker, z, coeffsDict, assetWeights, assets, time, busEpsScala
       # Convert single-column DataFrame to Series for consistent integer-based indexing
       # if isinstance(series, pd.DataFrame) and series.shape[1] == 1:
       #     series = series.iloc[:, 0]
-      print(f"Mean {name}: {np.mean(series)}, std {np.std(series)}")
+      print(f"Mean {name}: {np.nanmean(series)}, std {np.nanstd(series)}")
       D1 = series[:int(len(series) / 10)]
       D10 = series[int((len(series) / 10) * 9):]
       # D1 = series[(len(series) - 10]
       print(f"First 10 items in {name}: {series[:10]}")
-      print(f"Mean of first 10% of {name}: {np.mean(D1)}, std {np.std(D1)}")
-      print(f"Mean of last 10% of {name}: {np.mean(D10)}, std {np.std(D10)}")
+      print(f"Mean of first 10% of {name}: {np.nanmean(D1)}, std {np.nanstd(D1)}")
+      print(f"Mean of last 10% of {name}: {np.nanmean(D10)}, std {np.nanstd(D10)}")
       newSeries = [] # Initialize newSeries outside the if block
       if len(series) > limit:
         for i in range(len(series)):
@@ -5697,7 +5808,7 @@ def runAssetSimul(ticker, z, coeffsDict, assetWeights, assets, time, busEpsScala
     monthsNeeded = int(np.ceil(targetLen / 30)) + 1
     sampledMonthly = np.random.choice(muMonthly, size=monthsNeeded, replace=True)
 
-    muVol = np.std(muMonthly) / np.sqrt(30)
+    muVol = np.nanstd(muMonthly) / np.sqrt(30)
     if muVol <= 0.00002: # fallback if tiny mu volatility
       muVol = 0.00002
     z = z[:targetLen]
@@ -5743,10 +5854,10 @@ def runAssetSimul(ticker, z, coeffsDict, assetWeights, assets, time, busEpsScala
 # _________Getting White Noise (z)_____________________
   # Initialize z once for the simulation path
   # print(f"z in {ticker} len {len(z)}")
-  zMean = np.mean(z)
+  zMean = np.nanmean(z)
 
 
-  zStd = np.std(z)
+  zStd = np.nanstd(z)
 
 
   zVariance = np.var(z)
@@ -5784,7 +5895,7 @@ def runAssetSimul(ticker, z, coeffsDict, assetWeights, assets, time, busEpsScala
       fitSigma = coeffsDict[assetClass][ticker]['fitSigma']
       sigmaScalar = coeffsDict[assetClass][ticker]['sigmaScalar']
       if debug8 == True:
-        print(f"fit Sigma mean {np.mean(fitSigma)}, first 20 items {fitSigma[:20]}")
+        print(f"fit Sigma mean {np.nanmean(fitSigma)}, first 20 items {fitSigma[:20]}")
 
 
         plt.plot(time[:len(fitSigma)], fitSigma)
@@ -5881,7 +5992,7 @@ def runAssetSimul(ticker, z, coeffsDict, assetWeights, assets, time, busEpsScala
         float(firstEps)
       )
       if debug12 == True:
-        print(f"{ticker} HEYY IN RUNASSETSIMUL PROPERTY mean r {np.mean(r)}, mu {mu}, sigmaScalar {sigmaScalar}, sigma mean {np.mean(sigma)}, sigma std {np.std(sigma)}, z mean {np.mean(z)}, z std {np.std(z)}")
+        print(f"{ticker} HEYY IN RUNASSETSIMUL PROPERTY mean r {np.nanmean(r)}, mu {mu}, sigmaScalar {sigmaScalar}, sigma mean {np.nanmean(sigma)}, sigma std {np.nanstd(sigma)}, z mean {np.nanmean(z)}, z std {np.nanstd(z)}")
       # r = mu + fitSigma2d * z # r will be simple returns
 
 
@@ -5907,7 +6018,7 @@ def runAssetSimul(ticker, z, coeffsDict, assetWeights, assets, time, busEpsScala
         # print(f"In runAssetSimul,(non yahoo), r = {r}, cumR, p, sigma, fitSigma, time, areDeposit = ", cumR, p, sigma, fitSigma, time, areDeposit)
 
 
-        print(f"In runAssetSimul, r mean = {np.mean(r)}, cumR, p, sigma, fitSigma, time, areDeposit = ")
+        print(f"In runAssetSimul, r mean = {np.nanmean(r)}, cumR, p, sigma, fitSigma, time, areDeposit = ")
       # sigma = fitSigma
       # sigma = sigmaScalar + np.random.normal(0, 0.0001, size=len(r))
       if debugVolatility2:
@@ -5934,7 +6045,7 @@ def runAssetSimul(ticker, z, coeffsDict, assetWeights, assets, time, busEpsScala
   if debug10== True:
     print(f"{ticker} longVar {longVar}")
     print(f"{ticker} sum of Alpha1 {alpha1} beta1 {beta1} and beta2 {beta2} {beta2 + alpha1 + beta1}")
-  # unconditionalSigma = np.mean(fitSigma)
+  # unconditionalSigma = np.nanmean(fitSigma)
   # firstSigma = unconditionalSigma * (1 + np.random.normal(0, 0.1))
   # secondSigma = unconditionalSigma * (1 + np.random.normal(0, 0.1))
 
@@ -6019,10 +6130,10 @@ def runAssetSimul(ticker, z, coeffsDict, assetWeights, assets, time, busEpsScala
   #   if debug10== True or debug11 == True or debugBus == True:
   #     print(f"omega {omega}, alpha1 {alpha1}, beta1 {beta1}, beta2 {beta2}, eps[:50] {eps[:50]}, sigma[:50] {sigma[:50]}")
   #   if debugBus == True:
-  #     print("Sigma mean: ", np.mean(sigma))
+  #     print("Sigma mean: ", np.nanmean(sigma))
   #     print("New Sigma", newSigma)
   #     print("newEps", newEps)
-  #     print("Eps mean", np.mean(eps))
+  #     print("Eps mean", np.nanmean(eps))
   #     print("Simulation is now running for t")
 
 
@@ -6066,7 +6177,7 @@ def runAssetSimul(ticker, z, coeffsDict, assetWeights, assets, time, busEpsScala
     if debug10 == True or debugBus == True:
       print(f"In runAssetSimul, {ticker}[:50] (Yahoo) r = {r[:50]}, cumR, p, sigma, fitSigma, time, areDeposit = ", cumR[:50], p[:50], sigma[:50], fitSigma[:50], time[:50], areDeposit)
     if debug10 == True  or debugBus == True:
-      print(f"In runAssetSimul, {ticker} (means) (Yahoo) r mean = {np.mean(r)}, eps {np.mean(eps)} cumR, p, sigma, fitSigma, time, areDeposit = {np.mean(cumR)}, **p** {np.mean(p)}, SIGMA {np.mean(sigma)}, ***FIT SIGMA {np.mean(fitSigma)}, {time[:30]}, {areDeposit}")
+      print(f"In runAssetSimul, {ticker} (means) (Yahoo) r mean = {np.nanmean(r)}, eps {np.nanmean(eps)} cumR, p, sigma, fitSigma, time, areDeposit = {np.nanmean(cumR)}, **p** {np.nanmean(p)}, SIGMA {np.nanmean(sigma)}, ***FIT SIGMA {np.nanmean(fitSigma)}, {time[:30]}, {areDeposit}")
     return(r, cumR, p, sigma, fitSigma, time, areDeposit)
 
 
@@ -6092,10 +6203,10 @@ def runAssetSimul(ticker, z, coeffsDict, assetWeights, assets, time, busEpsScala
   # if debug10== True or debug11 == True and assetClass == 'Property':
   #   print(f"omega {omega}, alpha1 {alpha1}, beta1 {beta1}, beta2 {beta2}, eps[:50] {eps[:50]}, sigma[:50] {sigma[:50]}")
   # if debug == True:
-  #   print("Sigma mean: ", np.mean(sigma))
+  #   print("Sigma mean: ", np.nanmean(sigma))
   #   print("New Sigma", newSigma)
   #   print("newEps", newEps)
-  #   print("Eps mean", np.mean(eps))
+  #   print("Eps mean", np.nanmean(eps))
   #   print("Simulation is now running for t")
 
 
@@ -6132,7 +6243,7 @@ def runAssetSimul(ticker, z, coeffsDict, assetWeights, assets, time, busEpsScala
   if debug10 == True and assetClass == 'Property':
     print(f"In runAssetSimul, {ticker}[:50] (Yahoo) r = {r[:50]}, cumR, p, sigma, fitSigma, time, areDeposit = ", cumR[:50], p[:50], sigma[:50], fitSigma[:50], time[:50], areDeposit)
   if debug10 == True and assetClass == 'Property':
-    print(f"In runAssetSimul, {ticker} (means) (Yahoo) r mean = {np.mean(r)}, eps {np.mean(eps)} cumR, p, sigma, fitSigma, time, areDeposit = {np.mean(cumR)}, **p** {np.mean(p)}, SIGMA {np.mean(sigma)}, ***FIT SIGMA {np.mean(fitSigma)}, {time[:30]}, {areDeposit}")
+    print(f"In runAssetSimul, {ticker} (means) (Yahoo) r mean = {np.nanmean(r)}, eps {np.nanmean(eps)} cumR, p, sigma, fitSigma, time, areDeposit = {np.nanmean(cumR)}, **p** {np.nanmean(p)}, SIGMA {np.nanmean(sigma)}, ***FIT SIGMA {np.nanmean(fitSigma)}, {time[:30]}, {areDeposit}")
 #   print(
 #     "RUN ASSET SIMUL END",
 #     ticker,
@@ -6822,18 +6933,18 @@ def runPort(
   df_zCorrelated = pd.DataFrame(zCorrelated, index=allTickersOrdered)
   if debugVol3:
     print(f"zCorrelated shape: {zCorrelated.shape}")
-    print(f"Mean correlation of zCorrelated: {np.mean(np.corrcoef(zCorrelated))}")
-    print(f"Std of zCorrelated across paths: {np.std(zCorrelated, axis=1).mean()}")
+    print(f"Mean correlation of zCorrelated: {np.nanmean(np.corrcoef(zCorrelated))}")
+    print(f"Std of zCorrelated across paths: {np.nanstd(zCorrelated, axis=1).mean()}")
 
   for assetClass in assets:
     if assetClass in assetsYahoo or assetClass in assetsCompleted:
       if debug == True:
-        print("std of mean of assetLevelZ is ", np.std(np.mean(assetLevelZ)))
-        print("std of assetLevelZs", np.std(assetLevelZ))
+        print("std of mean of assetLevelZ is ", np.nanstd(np.nanmean(assetLevelZ)))
+        print("std of assetLevelZs", np.nanstd(assetLevelZ))
       # classLevelZmeans.append(assetLevelZ)
       assetLevelZ = []
       if debug == True:
-        print("Current std of means of Z means is ", np.std(np.mean(zMeans)))
+        print("Current std of means of Z means is ", np.nanstd(np.nanmean(zMeans)))
       for ticker in assets[assetClass]:
          if (ticker in assetsYahoo.get(assetClass, []) or ticker in assetsCompleted.get(assetClass, [])):
 
@@ -6841,7 +6952,7 @@ def runPort(
 
 
           # z = 0.8 * commonZ + 0.2 * np.random.normal(loc=0.0, scale=1, size=len(time))
-          # z = (z - np.mean(z)) / np.std(z)
+          # z = (z - np.nanmean(z)) / np.nanstd(z)
           if debug == True:
             print("WOOO zCorrelated SHAPE ", zCorrelated.shape)
             print(assetId)
@@ -6869,10 +6980,10 @@ def runPort(
           #   assetId += 1
           # assetLevelZ.append(z)
           # zTotal.append(z)
-          # zMeans.append(np.mean(z))
-          # zStds.append(np.std(z))
+          # zMeans.append(np.nanmean(z))
+          # zStds.append(np.nanstd(z))
           if debug == True:
-            print("Z mean = ", np.mean(z), "Z std is ", np.std(z))
+            print("Z mean = ", np.nanmean(z), "Z std is ", np.nanstd(z))
           if debug4 == True:
             if ticker == 'Land Other':
               print(f"z with {ticker} before runAssetSimul is: {z}")
@@ -6896,7 +7007,7 @@ def runPort(
               r = np.pad(r, (0, pad_width), mode='edge')
               sigma = np.pad(sigma, (0, pad_width), mode='edge')
               fitSigma = np.pad(fitSigma, (0, pad_width), mode='edge')
-          # bugCheckData.append(ticker, "r mean:", np.mean(r), "r std:", np.std(r))
+          # bugCheckData.append(ticker, "r mean:", np.nanmean(r), "r std:", np.nanstd(r))
           if np.any(r > 0.5):
 
             print(f"HEY!!!!!!\n", "=" * 40, f"r for {ticker}, {assetClass} is crazy. Clipped to + 50%")
@@ -6906,7 +7017,7 @@ def runPort(
           r = np.clip(r, -0.50, 0.50)
 
           if debug == True:
-            print("WOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO HERE NOW !!!!!!!!!!!!", ticker, "r mean:", np.mean(r), "r std:", np.std(r))
+            print("WOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO HERE NOW !!!!!!!!!!!!", ticker, "r mean:", np.nanmean(r), "r std:", np.nanstd(r))
 
 
     #___________________________________________________________________________________
@@ -7078,7 +7189,7 @@ def runPort(
 
          else:
             print(f"Skipping asset {ticker} because not completed")
-    # nt("Std of mean of classLevelZmeans ", np.std(np.mean(classLevelZmeans)))
+    # nt("Std of mean of classLevelZmeans ", np.nanstd(np.nanmean(classLevelZmeans)))
 
 
   tickers = []
@@ -7170,7 +7281,7 @@ def runPort(
         for ticker in returnsDict[assetClass][household]:
           series = np.asarray(returnsDict[assetClass][household][ticker], dtype=np.float64)
           retsList[household].append(series)
-          muVal = np.mean(series)
+          muVal = np.nanmean(series)
           muList[household].append(muVal)
           tickersLessDeposit.append(ticker)
 
@@ -7235,7 +7346,7 @@ def runPort(
 
 
 #   # print("optimiser mu (annual) = ", mu)
-#   # muHist = np.array(np.mean([yf.download(ticker_symbol, start=start, end=end)['Close'].pct_change().dropna().mean() for assetClass in assets for ticker_symbol in assets[assetClass]]))
+#   # muHist = np.array(np.nanmean([yf.download(ticker_symbol, start=start, end=end)['Close'].pct_change().dropna().mean() for assetClass in assets for ticker_symbol in assets[assetClass]]))
 #   # mu = (1 + muHist) ** 252 -1
 
 
@@ -7288,7 +7399,7 @@ def runPort(
 
 
 #   # for t, ticker in enumerate(tickers) - 1:
-#   #   print(ticker, "mu", mu[t], "std:", np.std(retsMatrix[t]))
+#   #   print(ticker, "mu", mu[t], "std:", np.nanstd(retsMatrix[t]))
 #   if debug == True:
 #     print("Correlations are ", corrMatrix)
 #   optimalResult = minimize(negSharpe, w0, bounds=bounds, constraints=constraints)
@@ -7310,9 +7421,9 @@ def runPort(
 #   portVaR5 = -np.percentile(portExpReturns, 5)
   if debug == True:
 
-    print("Overall std of z means, ", np.std(zMeans))
-    print("Overall std of means of z means, ", np.std(np.mean(zMeans)))
-    print("Overall std of z stds, ", np.std(zStds))
+    print("Overall std of z means, ", np.nanstd(zMeans))
+    print("Overall std of means of z means, ", np.nanstd(np.nanmean(zMeans)))
+    print("Overall std of z stds, ", np.nanstd(zStds))
 
 
   if debug2 == True:
@@ -7333,10 +7444,10 @@ def runPort(
       #   "optWeighs": optWeights,
       #   "covMatrix": covMatrix,
       "portZmeans": zMeans,
-      "portZSTDmeans": np.std(1),
-      "portZmeanofStd": np.mean(1),
+      "portZSTDmeans": np.nanstd(1),
+      "portZmeanofStd": np.nanmean(1),
       "portZTotal": zTotal,
-      "portZTotalMean": np.mean(1),
+      "portZTotalMean": np.nanmean(1),
       "tickers": tickers,
       "assetReturnPaths": assetReturnPaths,
       "assetSigmaPaths": assetSigmaPaths
@@ -7360,12 +7471,12 @@ def runMonteCarloReal(N, sampleStep, coeffsDict, assetWeights, assetsCompleted, 
             }
         else:
             summariesByHousehold[householdKey] = {
-                "mean": np.mean(retArray),
-                "std": np.std(retArray),
+                "mean": np.nanmean(retArray),
+                "std": np.nanstd(retArray),
                 "VaR5": -np.percentile(retArray, 5),
                 "cumEnd": path["portCumR"][householdKey][-1],
-                "annualMean": (1 + np.mean(retArray)) ** daysPerYear - np.mean(retArray),
-                "Lifetime": (1 + np.mean(retArray)) ** (daysPerYear * 82) - np.mean(retArray)
+                "annualMean": (1 + np.nanmean(retArray)) ** daysPerYear - np.nanmean(retArray),
+                "Lifetime": (1 + np.nanmean(retArray)) ** (daysPerYear * 82) - np.nanmean(retArray)
             }
     return summariesByHousehold
 
@@ -7374,8 +7485,8 @@ def runMonteCarloReal(N, sampleStep, coeffsDict, assetWeights, assetsCompleted, 
     def _optPathSummary(path):
       r = path["portExpReturns"]
       return {
-          "mean": np.mean(r),
-          "std": np.std(r),
+          "mean": np.nanmean(r),
+          "std": np.nanstd(r),
           "VaR5": -np.percentile(r, 5),
           "cumEnd": path["portCumR"][-1]
       }
@@ -7481,17 +7592,17 @@ def runMonteCarloReal(N, sampleStep, coeffsDict, assetWeights, assetsCompleted, 
 
   # Convert lists of arrays to 3D arrays for mean calculation (simulations, households, time_steps)
   # Then compute mean across simulations for each household
-  meanPathRet = {h: np.mean(np.array(processed_allPathsPortRet[h]), axis=0) if processed_allPathsPortRet[h] else np.array([]) for h in households}
-  meanPathCumR = {h: np.mean(np.array(processed_allPathsPortCumR[h]), axis=0) if processed_allPathsPortCumR[h] else np.array([]) for h in households}
-  meanPathSigma = {h: np.mean(np.array(processed_allPathsPortSigma[h]), axis=0) if processed_allPathsPortSigma[h] else np.array([]) for h in households}
+  meanPathRet = {h: np.nanmean(np.array(processed_allPathsPortRet[h]), axis=0) if processed_allPathsPortRet[h] else np.array([]) for h in households}
+  meanPathCumR = {h: np.nanmean(np.array(processed_allPathsPortCumR[h]), axis=0) if processed_allPathsPortCumR[h] else np.array([]) for h in households}
+  meanPathSigma = {h: np.nanmean(np.array(processed_allPathsPortSigma[h]), axis=0) if processed_allPathsPortSigma[h] else np.array([]) for h in households}
 
 
   if optRun == True:
     # Assuming optAllPathsPortCumR and optAllPathsPortRet are lists of arrays (not dicts per household)
     optPathsMatrixCumR = np.array(optAllPathsPortCumR)
     optPathsMatrixRet = np.array(optAllPathsPortRet)
-    optMeanPathCumR = np.mean(optPathsMatrixCumR, axis=0)
-    optMeanPathRet = np.mean(optPathsMatrixRet, axis=0)
+    optMeanPathCumR = np.nanmean(optPathsMatrixCumR, axis=0)
+    optMeanPathRet = np.nanmean(optPathsMatrixRet, axis=0)
 
 
   # houseWeights = []
@@ -7889,8 +8000,8 @@ def runChunks(inputParameters, coeffsDict, assetWeights, assets, assetsCompleted
 #         {
 #             "Household":             h,
 #             "Mean Cumulative Return": portCumR[h][-1],
-#             "Mean Std Daily Return":  np.mean(portSigma[h]),
-#             "Mean Daily Return":      np.mean(portRet[h]),
+#             "Mean Std Daily Return":  np.nanmean(portSigma[h]),
+#             "Mean Daily Return":      np.nanmean(portRet[h]),
 #         }
 #         for h in households
 #     ])
@@ -8233,7 +8344,7 @@ def getGraphs():
       # print(plottingList[h])
       sampleSummaryRows.append({
           "Household": h,
-          "Std of Paths Cumulative Return": np.std(plottingList[h]),
+          "Std of Paths Cumulative Return": np.nanstd(plottingList[h]),
           "Maximum Return": max(plottingList[h]),
           "Minimum Return": min(plottingList[h])
       })
@@ -8285,7 +8396,7 @@ def getGraphs():
     colourList = []
     labelList = []
     for assetClass in fullSavedAssetResFull['sigmaAssetClassPath']:
-      sigmaList.append(np.mean(fullSavedAssetResFull['sigmaAssetClassPath'][assetClass]))
+      sigmaList.append(np.nanmean(fullSavedAssetResFull['sigmaAssetClassPath'][assetClass]))
       labelList.append(f"{assetClass}")
       colourList.append(assetClassColours[assetClass])
     # plt.bar(label=f"{assetClass}", color=assetClassColours[assetClass], alpha=alpha)
@@ -8316,8 +8427,8 @@ def getGraphs():
       houseVolatilityRows.append({
               "Household": h,
               "Final Volatility": sigma[-1],
-              "Mean Volatility": np.mean(sigma),
-              "Std of Volatility": np.std(sigma)
+              "Mean Volatility": np.nanmean(sigma),
+              "Std of Volatility": np.nanstd(sigma)
           })
     houseVolTable = pd.DataFrame(houseVolatilityRows)
     #sort
@@ -8337,8 +8448,8 @@ def getGraphs():
         assetVolatilityRows.append({
             "Asset Class": assetClass,
             "Final Volatility": sigma[-1],
-            "Mean Volatility": np.mean(sigma),
-            "Std of Volatility": np.std(sigma)
+            "Mean Volatility": np.nanmean(sigma),
+            "Std of Volatility": np.nanstd(sigma)
           })
     assetVolTable = pd.DataFrame(assetVolatilityRows)
     #sort
@@ -8360,7 +8471,7 @@ def getGraphs():
       meanSummaryRows.append({
             "Household": h,
             "Final Return": finalVals[h],
-            # "Std of Paths Cumulative Return": np.std(finalVals[h]),
+            # "Std of Paths Cumulative Return": np.nanstd(finalVals[h]),
             # "Maximum Return": ,
             # "Minimum Return": min(plottingList[h])
         })
@@ -8415,92 +8526,6 @@ def getGraphs():
 # =================================================================================================================================
 # getGraphs()
 
-structure = {
-    "dict_arr_1": "dict of 1d arrays", 
-    "dict_arr_2": "dict of 2d arrays", 
-    "dict_s": "dict of scalars", 
-    "df": "dataframe", 
-    "l_dict_s": "list of dicts of scalars (prob. pairs)",
-    "nest_dict_s": "nested_dict_of_scalars",
-}
-
-domain = {"ts": "time_series",
-          "p": "mc_paths",
-          "a": "aggregation"
-}
-metric_config = {
-    "gap_results": {
-        "target": "pairs",
-        "structure": "dict_arr_1",
-        "domain": "p",
-        "metrics": ["mean", "med", "std", "p5", "p95", "len"]
-
-    },
-    "band_results": {
-        "target": "coverage_raw",
-        "structure": "nest_dict_s",
-        "domain": "a",
-        "metrics": ["mean", "med", "std", "len", "raw"]
-
-    },
-    "crps_results": {
-        "target": "crps_scores",
-        "structure": "dict_s",
-        "domain": "a",
-        "metrics": ["mean", "med", "std", "len", "raw"]
-
-    },
-    "convergence_results": {
-        "target": "convergence_raw",
-        "structure": "l_dict_s",
-        "domain": "a",
-        "metrics": ["std", "len", "raw"]
-
-    },
-    "back_test_results": {
-        "target": "backtest_df",
-        "structure": "df",
-        "domain": "a",
-        "metrics": ["mean", "med", "std", "raw"]
-
-    },
-    "house_cum_results": {
-        "target": "plottingList",
-        "structure": "dict_arr_1",
-        "domain": "p",
-        "metrics": ["mean", "med", "std", "p5", "p95", "len"]
-
-    },
-    "asset_vol_results": {
-        "target": "sigmaDict",
-        "structure": "dict_arr_1",
-        "domain": "a",
-        "metrics": ["mean", "med", "std", "p5", "p95"]
-
-    },
-    "house_vol_results": {
-        "target": "house_vol_df",
-        "structure": "df",
-        "domain": "a",
-        "metrics": ["raw"]
-
-    },
-    "mean_household_results": {
-        "target": "meanPath",
-        "structure": "dict_arr_1",
-        "domain": "a",
-        "metrics": ["terminal", "std", "raw"]
-
-    },
-   
-    "name": {
-        "target": "",
-        "structure": "",
-        "domain": "",
-        "metrics": ["mean", "med", "std", "p5", "p95", "len", "raw", "terminal"]
-
-    },
-}
 
 def _streamline_results(full_output):
   item = {}
@@ -8690,8 +8715,27 @@ def get_comparable_results(metric_results, name, inputParameters, metric_config,
         # wealth_asset_gap
   return sensitivity_results
 
+# return {
+#       "assetsCompleted": assetsCompleted, 
+#       "assetsYahoo":assetsYahoo, 
+#       "assets":assets, 
+#       "assetWeights":assetWeights, 
+#       "households": households, 
+#       "time": time, 
+#       "folder": folder,
+#       "chunkFolder": chunkFolder, 
+#       "fullSavedAssetRes": fullSavedAssetRes, 
+#       "corrAbleClasses": corrAbleClasses, 
+#       "metric_config": metric_config, 
+#       "chunk_dir": chunk_dir, 
+#       "graph_dir":graph_dir, 
+#       "data_dir": data_dir, 
+#       "scenarios": scenarios, 
+#       "inputParameters": inputParameters}
 
-def main(inputParameters, V_num, testOneChunk=False, comparable_results=None):
+def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=None):
+  
+  
   import traceback
 #   !pip install stackprinter
   import stackprinter
@@ -8700,8 +8744,30 @@ def main(inputParameters, V_num, testOneChunk=False, comparable_results=None):
   
   try:
       print("=== SETUP ===")
+      if inputParameters == None:
+      
+        (
+            assetsCompleted,
+            assetsYahoo,
+            assets,
+            assetWeights,
+            households,
+            time,
+            folder,
+            chunkFolder,
+            fullSavedAssetRes,
+            corrAbleClasses,
+            metric_config,
+            chunk_dir,
+            graph_dir,
+            data_dir,
+            scenarios,
+            inputParameters
 
-      (
+
+        ) = setup()
+      else:
+         (
           assetsCompleted,
           assetsYahoo,
           assets,
@@ -9192,19 +9258,46 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
   
   try:
       print("=== SETUP ===")
+      if inputParameters == None:
+        (
+            assetsCompleted,
+            assetsYahoo,
+            assets,
+            assetWeights,
+            households,
+            time,
+            folder,
+            chunkFolder,
+            fullSavedAssetRes,
+            corrAbleClasses,
+            metric_config_imported,
+            chunk_dir,
+            graph_dir,
+            data_dir,
+            scenariosImported,
+            inputParameters
 
-      (
-          assetsCompleted,
-          assetsYahoo,
-          assets,
-          assetWeights,
-          households,
-          time,
-          folder,
-          chunkFolder,
-          fullSavedAssetRes,
-          corrAbleClasses
-      ) = setup()
+
+        ) = setup()
+        if scenarios == None:
+          scenarios = scenariosImported
+        if metric_config == None:
+          metric_config = metric_config_imported
+      else:
+        (
+            assetsCompleted,
+            assetsYahoo,
+            assets,
+            assetWeights,
+            households,
+            time,
+            folder,
+            chunkFolder,
+            fullSavedAssetRes,
+            corrAbleClasses
+        ) = setup()
+      
+      
 
   except Exception:
       print("FAILED IN SETUP")
@@ -9315,7 +9408,7 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
           asset_weights=assetWeights,
           households=households,
           time_hist=time,
-          V_num=V_num,
+          V_num=f"{V_num}_{scenarioName}",
           percentile_bands=inputParametersInitial["percentile_bands"],
           aggRes = aggRes,  # idk
           asset_level_res = assetResults
@@ -9358,8 +9451,8 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
 #=====================================
 # main(inputParameters, 8)
 #=====================================
-# baseline_output = main(inputParameters, V_num="baseline_debug2", testOneChunk=True)
-# baseline_dict = baseline_output["comparable_results"] 
+baseline_output = main(inputParameters, V_num="baseline_debug2", testOneChunk=True)
+baseline_dict = baseline_output["comparable_results"] 
 
 # comparable_results = runSensitivityTests(inputParameters, scenarios, metric_config, "sensitivityDebug2", testOneChunk=True, selection=None, sensitivityResults=baseline_dict)
 # try:
@@ -9392,7 +9485,9 @@ def runAnalysisGraphingPipelineOnly(inputParameters, scenarios, metric_config, V
     for scenario in filtered:
         scenarioType = scenario.get("type").lower()
         scenarioName = scenario.get("name")
-        
+        scenario_V_num = f"{V_num}_{scenarioName}"
+    
+        print(f"\n>>> PROCESSING METRICS FOR SCENARIO: {scenarioName} (Targeting: {scenario_V_num}) <<<")
         print(f"\n>>> PROCESSING METRICS FOR SCENARIO: {scenarioName} <<<")
         
         # Recreate parameter mutations so metrics align
@@ -9413,7 +9508,7 @@ def runAnalysisGraphingPipelineOnly(inputParameters, scenarios, metric_config, V
             print("=== ASSET AGGREGATION ===")
             assetResults = aggregate_to_asset_paths(
                 nTotalPaths=inputParametersInitial["Chunks"]["totalPaths"],
-                V_num=V_num
+                V_num=scenario_V_num
             )
 
             print("=== PORTFOLIO AGGREGATION ===")
@@ -9432,7 +9527,7 @@ def runAnalysisGraphingPipelineOnly(inputParameters, scenarios, metric_config, V
                 asset_weights=assetWeights,
                 households=households,
                 time_hist=time,
-                V_num=V_num,
+                V_num=scenario_V_num,
                 percentile_bands=inputParametersInitial["percentile_bands"],
                 aggRes=aggRes,  
                 asset_level_res=assetResults
