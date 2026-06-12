@@ -3159,6 +3159,7 @@ def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results,
   
 
 import numpy as np
+import arch
 print(arch.__version__)
 
 
@@ -3256,6 +3257,7 @@ def setup():
   pathCountsConverge = [4999]
   pathCounts = pathCountsConverge
   from scipy.optimize import minimize
+  import os
   # ----------------------------
   # Helper functions
   # ----------------------------
