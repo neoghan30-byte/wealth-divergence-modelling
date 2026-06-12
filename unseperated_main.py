@@ -1990,7 +1990,7 @@ def get_metric_analysis(
     sim_low_pct: float = 5.0,
     sim_high_pct: float = 95.0,
     save_folder: str = None,
-    debugMetrics: bool = True, 
+    debugMetrics: bool = False, 
     ):
       #households, coeffs_dict, assets_completed, asset_weights, time_hist, save_folder, percentile_bands):
   #===== calling other back tests
@@ -9451,8 +9451,8 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
 #=====================================
 # main(inputParameters, 8)
 #=====================================
-baseline_output = main(inputParameters, V_num="baseline_debug2", testOneChunk=True)
-baseline_dict = baseline_output["comparable_results"] 
+# baseline_output = main(V_num="baseline_debug2", inputParameters, testOneChunk=True)
+# baseline_dict = baseline_output["comparable_results"] 
 
 # comparable_results = runSensitivityTests(inputParameters, scenarios, metric_config, "sensitivityDebug2", testOneChunk=True, selection=None, sensitivityResults=baseline_dict)
 # try:
