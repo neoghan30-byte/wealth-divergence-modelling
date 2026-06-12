@@ -9263,7 +9263,8 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
       t0 = tm.perf_counter()
       print("=== CHUNK SIMULATION ===")
       # if debugLocal: V_num = "debug"
-      aggres = runChunks(inputParametersInitial, scenario_coeffs, assetWeights, assets, assetsCompleted, assetsYahoo, corrAbleClasses, households, time, returnsDict, folder, V_num, testOneChunk)
+      aggres = runChunks(inputParametersInitial, scenario_coeffs, assetWeights, assets, assetsCompleted, assetsYahoo, corrAbleClasses, households, time, 
+                         returnsDict, folder, V_num=f"{V_num}_{scenarioName}", testOneChunk=testOneChunk)
       aggres
     except Exception:
       print(f"FAILED IN RUN CHUNKS")
@@ -9309,7 +9310,7 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
 
         metric_results = get_metric_analysis(
           chunk_folder=chunkFolder,
-          coeffs_dict=coeffsDict,
+          coeffs_dict=scenario_coeffs,
           assets_completed=assetsCompleted,
           asset_weights=assetWeights,
           households=households,
@@ -9368,3 +9369,97 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
 #         traceback.print_exc()
 #         stackprinter.show(style='lightbg')
 #         raise
+
+def runAnalysisGraphingPipelineOnly(inputParameters, scenarios, metric_config, V_num, testOneChunk=False, selection=None, sensitivityResults=None):
+   
+    
+    # 1. Run Setup and Coeff fitting to get the required baseline metadata structures
+    print("=== SETUP & COEFF FITTING ===")
+    (
+        assetsCompleted, assetsYahoo, assets, assetWeights, 
+        households, time, folder, chunkFolder, fullSavedAssetRes, corrAbleClasses
+    ) = setup()
+    
+    coeffsDict, returnsDict = getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, time, corrAbleClasses, {}, inputParameters)
+    explode_test(3, returnsDict, "main() runChunks")
+
+    if selection == None:
+        selection = "all"
+  
+    allTypes = [item.get("type", None) for item in scenarios]
+    filtered = [item for item in scenarios if (selection == "all" and item.get("type") in allTypes) or (item.get("type") == selection)]
+  
+    for scenario in filtered:
+        scenarioType = scenario.get("type").lower()
+        scenarioName = scenario.get("name")
+        
+        print(f"\n>>> PROCESSING METRICS FOR SCENARIO: {scenarioName} <<<")
+        
+        # Recreate parameter mutations so metrics align
+        inputParametersInitial = copy.deepcopy(inputParameters)
+        if scenarioType == "returns" or scenarioType == "volatility":
+            muScalar = scenario.get("muScalar", 1.0)
+            volScalar = scenario.get("volScalar", 1.0)
+            scenario_coeffs = applyReturnShock(coeffsDict=coeffsDict, muScalar=muScalar, volScalar=volScalar)
+        elif scenarioType == "correlation":
+            scenario_coeffs = copy.deepcopy(coeffsDict)
+            inputParametersInitial["Correlation Modifier"]["Global Scalar"] = scenario.get("Global Scalar")
+            inputParametersInitial["Correlation Modifier"]["Mode"] = scenario.get("Mode")
+        else:
+            scenario_coeffs = copy.deepcopy(coeffsDict)
+
+        
+        try:
+            print("=== ASSET AGGREGATION ===")
+            assetResults = aggregate_to_asset_paths(
+                nTotalPaths=inputParametersInitial["Chunks"]["totalPaths"],
+                V_num=V_num
+            )
+
+            print("=== PORTFOLIO AGGREGATION ===")
+            aggRes = portfolioAggregation(
+                assetWeights=assetWeights,
+                fullSavedAssetRes=assetResults,
+                households=households,
+                assetsCompleted=assetsCompleted
+            )
+
+            print("=== ANALYSIS ===")
+            metric_results = get_metric_analysis(
+                chunk_folder=chunkFolder,
+                coeffs_dict=scenario_coeffs, 
+                assets_completed=assetsCompleted,
+                asset_weights=assetWeights,
+                households=households,
+                time_hist=time,
+                V_num=V_num,
+                percentile_bands=inputParametersInitial["percentile_bands"],
+                aggRes=aggRes,  
+                asset_level_res=assetResults
+            )
+            
+            sensitivityResults = get_comparable_results(
+                metric_results, scenarioName, inputParametersInitial, 
+                metric_config, scenario_coeffs, sensitivityResults, scenario
+            )
+
+            print("=== GRAPHING ===")
+            runGraphs(
+                aggRes=aggRes,
+                assetResults=assetResults,
+                time=time,
+                households=households,
+                graph_dir=graph_dir,
+                metric_results=metric_results,
+                tablesNeeded=True
+            )
+
+        except Exception as e:
+            print(f"Failed processing scenario {scenarioName}")
+            raise e
+
+    return {"comparable_results": sensitivityResults}
+
+# Execute the analysis loop directly
+# analysis_output = runAnalysisPipelineOnly(inputParameters, scenarios, metric_config, "sensitivityDebug2", testOneChunk=True)
+# run_comparable_result_analysis(analysis_output)
