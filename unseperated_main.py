@@ -76,7 +76,7 @@ graph_dir = data_dir / "graphs"
 #   2. Historical windows (i.e, 2008, 2016)
 #   3. Stats tests ()
 
-
+import zstandard as zstd
 import os
 import re
 import pickle
@@ -362,7 +362,11 @@ def wealthGapDistribution(chunk_folder: str, households: list, V_num,
 
 
         try:
-            with open(fpath, "rb") as f:
+            try: 
+                with zstd.open(fpath, "rb") as f:
+                  saved = pickle.load(f)
+            except zstd.ZstdError:
+               with open(fpath, "rb") as f:
                 saved = pickle.load(f)
         except Exception as e:
             print(f"Skipping corrupted chunk {fname}: {e}")
@@ -513,8 +517,12 @@ def multiBandBacktest(chunk_folder: str, coeffs_dict: dict,
     for fname in chunk_files:
         fpath = os.path.join(chunk_folder, fname)
         try:
-          with open(fpath, "rb") as f:
-              saved = pickle.load(f)
+            try: 
+                with zstd.open(fpath, "rb") as f:
+                  saved = pickle.load(f)
+            except zstd.ZstdError:
+               with open(fpath, "rb") as f:
+                saved = pickle.load(f)
         except Exception as e:
             print(f"Skipping corrupted chunk {fname}: {e}")
             continue
@@ -656,8 +664,14 @@ def run_multi_band_analysis(
     for fname in chunk_files:
         fpath = os.path.join(chunk_folder, fname)
         try:
-            with open(fpath, "rb") as f:
+          
+            try: 
+                with zstd.open(fpath, "rb") as f:
+                  saved = pickle.load(f)
+            except zstd.ZstdError:
+               with open(fpath, "rb") as f:
                 saved = pickle.load(f)
+       
             for path in saved["chunkResults"]["monteCarlo"]["allHouseholdCum"]:
               for h in households:
                   arr = np.asarray(path[h])
@@ -994,8 +1008,14 @@ def crpsAnalysis(chunk_folder: str, coeffs_dict: dict,
 
     for fname in chunk_files:
         fpath = os.path.join(chunk_folder, fname)
-        with open(fpath, "rb") as f:
-            saved = pickle.load(f)
+        
+        try: 
+            with zstd.open(fpath, "rb") as f:
+              saved = pickle.load(f)
+        except zstd.ZstdError:
+            with open(fpath, "rb") as f:
+              saved = pickle.load(f)
+      
         ret_paths = saved["chunkResults"]["monteCarlo"]["allHouseholdRet"]
         for path in ret_paths:
             for h in households:
@@ -1162,9 +1182,13 @@ def run_combined_analysis(
     for fname in chunk_files:
         fpath = os.path.join(chunk_folder, fname)
         try:
-            with open(fpath, "rb") as f:
+          try: 
+            with zstd.open(fpath, "rb") as f:
+              saved = pickle.load(f)
+          except zstd.ZstdError:
+              with open(fpath, "rb") as f:
                 saved = pickle.load(f)
-            mc = saved["chunkResults"]["monteCarlo"]
+          mc = saved["chunkResults"]["monteCarlo"]
         except Exception as e:
             print(f"  WARNING: could not load {fname}: {e}")
             continue
@@ -1610,6 +1634,15 @@ def getHouseholdVolTable(aggRes, households):
        p5_lists[h].append(np.nanpercentile(path, 5))
        p95_lists[h].append(np.nanpercentile(path, 95))
        sigma_list[h].append(path)
+       ic(
+        h,
+        type(sigma_list[h]),
+        len(sigma_list[h])
+       )
+       if len(sigma_list[h]) > 0:
+        ic(
+            np.shape(sigma_list[h][0])
+        )
     single_sigma_path = aggRes['portSigma'][h]
     houseVolatilityRows.append({
             "Household": h,
@@ -3312,7 +3345,7 @@ def setup():
           os.rmdir(filePath)
 
 
-      with open(filePath, "wb") as f:
+      with zstd.open(filePath, "wb") as f:
           pickle.dump(state, f)
       print(f"Aggregation state saved to {filePath}.")
 
@@ -3328,8 +3361,12 @@ def setup():
 
 
       try:
-          with open(filePath, "rb") as f:
-              state = pickle.load(f)
+          try:
+              with zstd.open(filePath, "rb") as f:
+                  state = pickle.load(f)
+          except zstd.ZstdError:
+              with open(filePath, "rb") as f:
+                  state = pickle.load(f)
           print(f"Previous aggregation state loaded from {filePath}. State None? {state is None}")
           return state
       except EOFError:
@@ -4056,8 +4093,12 @@ def _save_item(item, path=None, base_path=None, add_to_base=None):
 
       os.makedirs(os.path.dirname(path), exist_ok=True)
       try:
-        with open(path, "wb") as f:
-            pickle.dump(item, f)
+          try:
+              with zstd.open(path, "wb") as f:
+                  pickle.dump(item, f)
+          except zstd.ZstdError:
+              with open(path, "wb") as f:
+                pickle.dump(item, f)
       except Exception as e:
           print("Failed to save item:", e)
           return None
@@ -4085,8 +4126,12 @@ def aggregate_to_asset_paths(nTotalPaths, V_num):
           return None
 
       try:
-          with open(path, "rb") as f:
-              state = pickle.load(f)
+          try:
+              with zstd.open(path, "rb") as f:
+                  state = pickle.load(f)
+          except zstd.ZstdError:
+             with open(path, "rb") as f:
+                  state = pickle.load(f)
 
           print("Loaded asset state with", state["pathCounter"], "paths")
           return state
@@ -4144,9 +4189,12 @@ def aggregate_to_asset_paths(nTotalPaths, V_num):
           filePath = os.path.join(chunkFolder, fname)
           print(f"file path {filePath}")
           try:
-
-              with open(filePath, "rb") as f:
-                  chunk = pickle.load(f)
+              try:
+                  with zstd.open(filePath, "rb") as f:
+                      chunk = pickle.load(f)
+              except zstd.ZstdError:
+                  with open(filePath, "rb") as f:
+                      chunk = pickle.load(f)
 
               mcData = chunk["chunkResults"]["monteCarlo"]
 
@@ -4364,11 +4412,18 @@ def aggregate_to_asset_paths(nTotalPaths, V_num):
       if count == 0:
         filePath = os.path.join(chunkFolder, fname)
         try:
-            with open(filePath, "rb") as f:
-                chunkData = pickle.load(f)
-                partial_results.append(chunkData)
-                count += 1
-                print(f"Loaded {fname}, chunk index = {chunkData['chunkIndex']}")
+            try:
+                with zstd.open(filePath, "rb") as f:
+                    chunkData = pickle.load(f)
+                    partial_results.append(chunkData)
+                    count += 1
+                    print(f"Loaded {fname}, chunk index = {chunkData['chunkIndex']}")
+            except zstd.ZstdError:
+                with open(filePath, "rb") as f:
+                    chunkData = pickle.load(f)
+                    partial_results.append(chunkData)
+                    count += 1
+                    print(f"Loaded {fname}, chunk index = {chunkData['chunkIndex']}")
         except Exception as e:
             print(f"Failed to load {fname}: {e}")
 
@@ -6565,7 +6620,7 @@ def applyCorrelationModifer(
 
 def runPort(
     coeffsDict, assetWeights, assetsCompleted, corrAbleClasses, assetsYahoo,
-    assets, households, time, returnsDict, busEpsScalar=1.1, alphaBus=None):
+    assets, households, time, returnsDict, inputParameters, busEpsScalar=1.1, alphaBus=None):
 
   def _addHouseholdsZeros(portRet):
     for household in assetWeights:
@@ -6805,7 +6860,15 @@ def runPort(
 
   eigvals = np.linalg.eigvals(fullCorr)
   if np.min(eigvals.real) < 0:
-      fullCorr += (-np.min(eigvals.real) + 1e-6) * np.eye(nTotal)
+      # fullCorr += (-np.min(eigvals.real) + 1e-6) * np.eye(nTotal)
+      # 1. Shift to make positive definite
+      shift = -np.min(eigvals.real) + 1e-6
+      fullCorr += shift * np.eye(nTotal)
+      
+      # 2. Scale back to a true correlation matrix (diagonals = 1.0)
+      
+      d = 1.0 / np.sqrt(np.diag(fullCorr))
+      fullCorr = fullCorr * np.outer(d, d)
 
   L = np.linalg.cholesky(fullCorr)
   
@@ -7561,7 +7624,7 @@ def runPort(
 
 
 
-def runMonteCarloReal(N, sampleStep, coeffsDict, assetWeights, assetsCompleted, corrAbleClasses, households, time, returnsDict, busEpsScalar=1.1, alphaBus=None):
+def runMonteCarloReal(N, sampleStep, coeffsDict, assetWeights, assetsCompleted, corrAbleClasses, households, time, returnsDict, inputParameters, busEpsScalar=1.1, alphaBus=None):
   def _pathSummary(path):
     r = path["portRet"]
     summariesByHousehold = {}
@@ -7634,7 +7697,7 @@ def runMonteCarloReal(N, sampleStep, coeffsDict, assetWeights, assetsCompleted, 
     # print(f"time type: {type(time)}, length: {len(time)}")
     # print(f"First few elements of time: {time[:3] if hasattr(time, '__getitem__') else 'N/A'}")
     # print(f"returnsDict type: {type(returnsDict)}, length: {len(returnsDict)}")
-    path = runPort(coeffsDict, assetWeights, assetsCompleted, corrAbleClasses, assetsYahoo, assets, households, time, returnsDict, busEpsScalar=busEpsScalar, alphaBus=alphaBus)
+    path = runPort(coeffsDict, assetWeights, assetsCompleted, corrAbleClasses, assetsYahoo, assets, households, time, returnsDict, inputParameters, busEpsScalar=busEpsScalar, alphaBus=alphaBus)
     summaries.append(_pathSummary(path)) # Append dict of summaries
     allPathsPortCumR.append(path["portCumR"])
     if debug2 == True:
@@ -7872,7 +7935,7 @@ def runChunks(inputParameters, coeffsDict, assetWeights, assets, assetsCompleted
       chunkResData = runMonteCarloReal(
           N=nChunk, sampleStep=4, coeffsDict=coeffsDict, assetWeights=assetWeights,
           assetsCompleted=assetsCompleted, corrAbleClasses=corrAbleClasses,
-          households=households, time=time, returnsDict=returnsDict, busEpsScalar=busEpsScalar, alphaBus=alphaBus)
+          households=households, time=time, returnsDict=returnsDict, inputParameters=inputParameters, busEpsScalar=busEpsScalar, alphaBus=alphaBus)
     except ValueError as e:                                                                 #assetsCompleted, corrAbleClasses, households, time, returnsDict,
         print(f"ERROR in runMonteCarloReal at chunk {start}-{end}")
         print(f"Error: {e}")
@@ -7899,10 +7962,19 @@ def runChunks(inputParameters, coeffsDict, assetWeights, assets, assetsCompleted
     filePath = os.path.join(chunkFolder, f"Chunk_Results_{V_num}_{start}_{start+nChunk-1}.pkl")
     # os.makedirs(filePath, exist_ok=True)
     # filePath.parent.mkdir(parents=True, exist_ok=True)
-    with open(filePath, "wb") as f:
-      pickle.dump(chunkSave, f)
-      if debugChunk == True:
-        print(f"Chunk saved: {filePath}")
+    try:
+        try:
+            with zstd.open(filePath, "wb") as f:
+              pickle.dump(chunkSave, f)
+              if debugChunk == True:
+                print(f"Chunk saved: {filePath}")
+        except zstd.ZstdError:
+            with open(filePath, "wb") as f:
+              pickle.dump(chunkSave, f)
+              if debugChunk == True:
+                print(f"Chunk saved: {filePath}")
+    except Exception as e:
+        raise e
     del chunkResData, chunkResult, chunkSave
     gc.collect()
 
@@ -8140,8 +8212,12 @@ def monte_carlo_convergence_chunked(chunkFolder, households, pathCountsConverge)
     for fname in chunkFiles:
         fpath = os.path.join(chunkFolder, fname)
         try:
-          with open(fpath, "rb") as f:
-              saved = pickle.load(f)
+            try:
+                with zstd.open(fpath, "rb") as f:
+                    saved = pickle.load(f)
+            except zstd.ZstdError:
+                with open(fpath, "rb") as f:
+                    saved = pickle.load(f)
         except Exception as e:
             print(f"Skipping corrupted chunk {fname}: {e}")
             continue
@@ -9472,17 +9548,17 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
 #=====================================
 # main(inputParameters, 8)
 #=====================================
-# baseline_output = main(V_num="baseline_debug2", inputParameters=None, testOneChunk=True)
-# baseline_dict = baseline_output["comparable_results"] 
+baseline_output = main(V_num="baseline_debug2", inputParameters=None, testOneChunk=True)
+baseline_dict = baseline_output["comparable_results"] 
 
-# comparable_results = runSensitivityTests(inputParameters=None, scenarios=None, metric_config=None, V_num="sensitivityDebug2", testOneChunk=True, selection=None, sensitivityResults=baseline_dict)
-# try:
-#   run_comparable_result_analysis(comparable_results)
-# except Exception:
-#         print("FAILED IN sensitivty analysis")
-#         traceback.print_exc()
-#         stackprinter.show(style='lightbg')
-#         raise
+comparable_results = runSensitivityTests(inputParameters=None, scenarios=None, metric_config=None, V_num="sensitivityDebug2", testOneChunk=True, selection=None, sensitivityResults=baseline_dict)
+try:
+  run_comparable_result_analysis(comparable_results)
+except Exception:
+        print("FAILED IN sensitivty analysis")
+        traceback.print_exc()
+        stackprinter.show(style='lightbg')
+        raise
 
 def runAnalysisGraphingPipelineOnly(inputParameters, scenarios, metric_config, V_num, testOneChunk=False, selection=None, sensitivityResults=None):
    
