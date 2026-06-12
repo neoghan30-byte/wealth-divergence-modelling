@@ -188,7 +188,7 @@ def _sorted_chunk_files(chunk_folder: str, V_num) -> list:
 
 def _build_hist_portfolio(
     coeffs_dict, assets_completed, asset_weights, households, time_hist,
-    trading_days_per_year=252, verbose=True
+    trading_days_per_year=252, verbose=False
 ) -> dict:
     """
     Re-create a daily historical portfolio return series for each household
@@ -1423,7 +1423,7 @@ def backtest_distribution_plot(backtest_df, households, backtest_raw, sim_low_pc
 # Table renderer 
 # ---------------------------------------------------------------------------
 
-def _render_backtest_table(df, save_folder=None, verbose=True):
+def _render_backtest_table(df, save_folder=None, verbose=False):
     fig, ax = plt.subplots(figsize=(14, 1.5 + 0.65 * len(df)))
     ax.set_axis_off()
     tbl = ax.table(
@@ -4285,7 +4285,7 @@ def aggregate_to_asset_paths(nTotalPaths, V_num):
       nTotalPaths= nTotalPaths,
       statePath=assetStatePath,
       resultPath = resultPath,
-      debug=True
+      debug=False
   )
   for c in assetResults["meanAssetPath"]:
       for t in assetResults["meanAssetPath"][c]:
@@ -8736,7 +8736,7 @@ def get_comparable_results(metric_results, name, inputParameters, metric_config,
 #       "scenarios": scenarios, 
 #       "inputParameters": inputParameters}
 
-def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=None):
+def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=None, metric_config=None):
   
   
   import traceback
@@ -8747,42 +8747,47 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
   
   try:
       print("=== SETUP ===")
-      if inputParameters == None:
+      # if inputParameters == None:
       
-        (
-            assetsCompleted,
-            assetsYahoo,
-            assets,
-            assetWeights,
-            households,
-            time,
-            folder,
-            chunkFolder,
-            fullSavedAssetRes,
-            corrAbleClasses,
-            metric_config,
-            chunk_dir,
-            graph_dir,
-            data_dir,
-            scenarios,
-            inputParameters
+      #   (
+      #       assetsCompleted,
+      #       assetsYahoo,
+      #       assets,
+      #       assetWeights,
+      #       households,
+      #       time,
+      #       folder,
+      #       chunkFolder,
+      #       fullSavedAssetRes,
+      #       corrAbleClasses,
+      #       metric_config,
+      #       chunk_dir,
+      #       graph_dir,
+      #       data_dir,
+      #       scenarios,
+      #       inputParameters
 
 
-        ) = setup()
-      else:
-         (
-          assetsCompleted,
-          assetsYahoo,
-          assets,
-          assetWeights,
-          households,
-          time,
-          folder,
-          chunkFolder,
-          fullSavedAssetRes,
-          corrAbleClasses
-      ) = setup()
-
+      #   ) = setup()
+      # else:
+      #    (
+      #     assetsCompleted,
+      #     assetsYahoo,
+      #     assets,
+      #     assetWeights,
+      #     households,
+      #     time,
+      #     folder,
+      #     chunkFolder,
+      #     fullSavedAssetRes,
+      #     corrAbleClasses
+      # ) = setup()
+      cfg = setup()
+      if inputParameters is None:
+        inputParameters = cfg["inputParameters"]
+      if metric_config is None:
+         metric_config = cfg["metric_config"]
+  
   except Exception:
       print("FAILED IN SETUP")
       traceback.print_exc()
@@ -8791,7 +8796,7 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
   # Step 2: getting data
   try:
         print("=== COEFF FITTING ===")
-        coeffsDict, returnsDict = getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, time, corrAbleClasses, {}, inputParameters)
+        coeffsDict, returnsDict = getCoeffs(cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], cfg["assetWeights"], cfg["households"], cfg["time"], cfg["corrAbleClasses"], {}, inputParameters)
         # returns_array = np.array(list(returnsDict.values()))
         # excessDays = np.sum(np.abs(returns_array) > 0.5)
         # total_days = len(returnsDict)
@@ -8814,7 +8819,7 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
     t0 = tm.perf_counter()
     print("=== CHUNK SIMULATION ===")
     # if debugLocal: V_num = "debug"
-    aggres = runChunks(inputParameters, coeffsDict, assetWeights, assets, assetsCompleted, assetsYahoo, corrAbleClasses, households, time, returnsDict, folder, V_num, testOneChunk)
+    aggres = runChunks(inputParameters, coeffsDict, cfg["assetWeights"], cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], cfg["corrAbleClasses"], cfg["households"], cfg["time"], returnsDict, cfg["folder"], V_num, testOneChunk)
     aggres
   except Exception:
     print(f"FAILED IN RUN CHUNKS")
@@ -8865,8 +8870,8 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
       aggRes = portfolioAggregation(
           assetWeights=assetWeights,
           fullSavedAssetRes=assetResults,
-          households=households,
-          assetsCompleted=assetsCompleted
+          households=cfg["households"],
+          assetsCompleted=cfg["assetsCompleted"]
       )
 
   except Exception:
@@ -8880,12 +8885,12 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
       print("=== ANALYSIS ===")
 
       metric_results = get_metric_analysis(
-        chunk_folder=chunkFolder,
+        chunk_folder=cfg["chunkFolder"],
         coeffs_dict=coeffsDict,
-        assets_completed=assetsCompleted,
-        asset_weights=assetWeights,
-        households=households,
-        time_hist=time,
+        assets_completed=cfg["assetsCompleted"],
+        asset_weights=cfg["assetWeights"],
+        households=cfg["households"],
+        time_hist=cfg["time"],
         V_num=V_num,
         percentile_bands=inputParameters["percentile_bands"],
         aggRes = aggRes,  # idk
@@ -8911,9 +8916,9 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
       runGraphs(
           aggRes=aggRes,
           assetResults=assetResults,
-          time=time,
-          households=households,
-          graph_dir=graph_dir,
+          time=cfg["time"],
+          households=cfg["households"],
+          graph_dir=cfg["graph_dir"],
           metric_results=metric_results,
           tablesNeeded=True
       )
@@ -9261,44 +9266,52 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
   
   try:
       print("=== SETUP ===")
-      if inputParameters == None:
-        (
-            assetsCompleted,
-            assetsYahoo,
-            assets,
-            assetWeights,
-            households,
-            time,
-            folder,
-            chunkFolder,
-            fullSavedAssetRes,
-            corrAbleClasses,
-            metric_config_imported,
-            chunk_dir,
-            graph_dir,
-            data_dir,
-            scenariosImported,
-            inputParameters
+      cfg = setup()
+      if inputParameters is None:
+        inputParameters = cfg["inputParameters"]
+      if metric_config is None:
+         metric_config = cfg["metric_config"]
+      if scenarios is None:
+         scenarios = cfg["scenarios"]
+        
+      # if inputParameters == None:
+      #   (
+      #       assetsCompleted,
+      #       assetsYahoo,
+      #       assets,
+      #       assetWeights,
+      #       households,
+      #       time,
+      #       folder,
+      #       chunkFolder,
+      #       fullSavedAssetRes,
+      #       corrAbleClasses,
+      #       metric_config_imported,
+      #       chunk_dir,
+      #       graph_dir,
+      #       data_dir,
+      #       scenariosImported,
+      #       inputParameters
 
 
-        ) = setup()
-        if scenarios == None:
-          scenarios = scenariosImported
-        if metric_config == None:
-          metric_config = metric_config_imported
-      else:
-        (
-            assetsCompleted,
-            assetsYahoo,
-            assets,
-            assetWeights,
-            households,
-            time,
-            folder,
-            chunkFolder,
-            fullSavedAssetRes,
-            corrAbleClasses
-        ) = setup()
+      #   ) = setup()
+      #   if scenarios == None:
+      #     scenarios = scenariosImported
+      #   if metric_config == None:
+      #     metric_config = metric_config_imported
+      # else:
+      #   (
+      #       assetsCompleted,
+      #       assetsYahoo,
+      #       assets,
+      #       assetWeights,
+      #       households,
+      #       time,
+      #       folder,
+      #       chunkFolder,
+      #       fullSavedAssetRes,
+      #       corrAbleClasses
+      #   ) = setup()
       
       
 
@@ -9311,7 +9324,9 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
   # Step 2: getting data
   try:
         print("=== COEFF FITTING ===")
-        coeffsDict, returnsDict = getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, time, corrAbleClasses, {}, inputParameters)
+        # coeffsDict, returnsDict = getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, time, corrAbleClasses, {}, inputParameters)
+        coeffsDict, returnsDict = getCoeffs(cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], cfg["assetWeights"], cfg["households"], cfg["time"], cfg["corrAbleClasses"], {}, inputParameters)
+        
         # returns_array = np.array(list(returnsDict.values()))
         # excessDays = np.sum(np.abs(returns_array) > 0.5)
         # total_days = len(returnsDict)
@@ -9359,9 +9374,11 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
       t0 = tm.perf_counter()
       print("=== CHUNK SIMULATION ===")
       # if debugLocal: V_num = "debug"
-      aggres = runChunks(inputParametersInitial, scenario_coeffs, assetWeights, assets, assetsCompleted, assetsYahoo, corrAbleClasses, households, time, 
-                         returnsDict, folder, V_num=f"{V_num}_{scenarioName}", testOneChunk=testOneChunk)
-      aggres
+      aggres = runChunks(inputParametersInitial, scenario_coeffs, cfg["assetWeights"], cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], cfg["corrAbleClasses"], cfg["households"], cfg["time"], returnsDict, cfg["folder"], V_num=f"{V_num}_{scenarioName}", testOneChunk=testOneChunk)
+
+      # aggres = runChunks(inputParametersInitial, scenario_coeffs, assetWeights, assets, assetsCompleted, assetsYahoo, corrAbleClasses, households, time, 
+      #                    returnsDict, folder, V_num=f"{V_num}_{scenarioName}", testOneChunk=testOneChunk)
+      # aggres
     except Exception:
       print(f"FAILED IN RUN CHUNKS")
       traceback.print_exc()
@@ -9388,10 +9405,10 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
         print("=== PORTFOLIO AGGREGATION ===")
 
         aggRes = portfolioAggregation(
-            assetWeights=assetWeights,
+            assetWeights=cfg["assetWeights"],
             fullSavedAssetRes=assetResults,
-            households=households,
-            assetsCompleted=assetsCompleted
+            households=cfg["households"],
+            assetsCompleted=cfg["assetsCompleted"]
         )
 
     except Exception:
@@ -9405,12 +9422,12 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
         print("=== ANALYSIS ===")
 
         metric_results = get_metric_analysis(
-          chunk_folder=chunkFolder,
+          chunk_folder=cfg["chunkFolder"],
           coeffs_dict=scenario_coeffs,
-          assets_completed=assetsCompleted,
-          asset_weights=assetWeights,
-          households=households,
-          time_hist=time,
+          assets_completed=cfg["assetsCompleted"],
+          asset_weights=cfg["assetWeights"],
+          households=cfg["households"],
+          time_hist=cfg["time"],
           V_num=f"{V_num}_{scenarioName}",
           percentile_bands=inputParametersInitial["percentile_bands"],
           aggRes = aggRes,  # idk
@@ -9454,17 +9471,17 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
 #=====================================
 # main(inputParameters, 8)
 #=====================================
-# baseline_output = main(V_num="baseline_debug2", inputParameters, testOneChunk=True)
-# baseline_dict = baseline_output["comparable_results"] 
+baseline_output = main(V_num="baseline_debug2", inputParameters=None, testOneChunk=True)
+baseline_dict = baseline_output["comparable_results"] 
 
-# comparable_results = runSensitivityTests(inputParameters, scenarios, metric_config, "sensitivityDebug2", testOneChunk=True, selection=None, sensitivityResults=baseline_dict)
-# try:
-#   run_comparable_result_analysis(comparable_results)
-# except Exception:
-#         print("FAILED IN sensitivty analysis")
-#         traceback.print_exc()
-#         stackprinter.show(style='lightbg')
-#         raise
+comparable_results = runSensitivityTests(inputParameters=None, scenarios=None, metric_config=None, V_num="sensitivityDebug2", testOneChunk=True, selection=None, sensitivityResults=baseline_dict)
+try:
+  run_comparable_result_analysis(comparable_results)
+except Exception:
+        print("FAILED IN sensitivty analysis")
+        traceback.print_exc()
+        stackprinter.show(style='lightbg')
+        raise
 
 def runAnalysisGraphingPipelineOnly(inputParameters, scenarios, metric_config, V_num, testOneChunk=False, selection=None, sensitivityResults=None):
    
