@@ -3204,6 +3204,39 @@ import pandas as pd
 import os
 import pickle
 
+  # if alreadyRun != 1:
+from numba import njit
+import copy
+import matplotlib.cm as cm
+import os
+import tqdm
+tqdm.tqdm = lambda *args, **kwargs: None
+# !pip install pandas_datareader.data
+# !pip install yfinance
+import yfinance as yf
+# yf.tqdm.tqdm = lambda *args, **kwargs: args[0] if args else None
+# yf.utils.disable_progress_bar()
+
+
+# !pip install arch
+# !pip install numpy
+# !pip install matplotlib
+
+
+# !pip install warnings
+# !pip install arch.utility
+
+warnings.simplefilter("ignore", DataScaleWarning)
+warnings.simplefilter("ignore", FutureWarning)
+warnings.simplefilter("ignore", ConvergenceWarning)
+from tqdm.auto import tqdm
+tqdm.__init__ = lambda *args, **kwargs: None
+
+
+import matplotlib.pyplot as plt
+import os
+os.environ["TQDM_DISABLE"] = "1"
+
 # =============================================================================================================================================
 
 #   Configuration 
@@ -3228,6 +3261,7 @@ debug = False
 optRun = False
 debugLocal = True # shorter run
 from matplotlib.ticker import PercentFormatter
+from scipy.optimize import minimize
 def setup():
   
 #   from google.colab import drive
@@ -3256,8 +3290,8 @@ def setup():
   pathCountsConverge = [100, 200, 300, 2000, 2500, 3000, 4000, 4500]
   pathCountsConverge = [4999]
   pathCounts = pathCountsConverge
-  from scipy.optimize import minimize
-  import os
+  
+  # import os
   # ----------------------------
   # Helper functions
   # ----------------------------
@@ -3338,43 +3372,10 @@ def setup():
   debugVol3 = False
   debug = False
   optRun = False
-  import pickle
+  # import pickle
   alreadyRun = 12
   daysPerYear = 365
 
-
-  if alreadyRun != 1:
-    from numba import njit
-    import copy
-    import matplotlib.cm as cm
-    import os
-    import tqdm
-    tqdm.tqdm = lambda *args, **kwargs: None
-    # !pip install pandas_datareader.data
-    # !pip install yfinance
-    import yfinance as yf
-    # yf.tqdm.tqdm = lambda *args, **kwargs: args[0] if args else None
-    # yf.utils.disable_progress_bar()
-
-
-    # !pip install arch
-    # !pip install numpy
-    # !pip install matplotlib
-
-
-    # !pip install warnings
-    # !pip install arch.utility
-    
-    warnings.simplefilter("ignore", DataScaleWarning)
-    warnings.simplefilter("ignore", FutureWarning)
-    warnings.simplefilter("ignore", ConvergenceWarning)
-    from tqdm.auto import tqdm
-    tqdm.__init__ = lambda *args, **kwargs: None
-
-
-    import matplotlib.pyplot as plt
-    import os
-    os.environ["TQDM_DISABLE"] = "1"
 
 
 
