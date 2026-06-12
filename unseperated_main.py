@@ -88,6 +88,7 @@ from scipy.stats import probplot
 import copy
 import gc
 import numbers
+from icecream import ic
 # Q-Q plot: Are simulated quantiles matching historical?
 # probplot(hist_vals, dist=('norm', np.nanmean(sim_vals), np.nanstd(sim_vals)))
 
@@ -3806,8 +3807,108 @@ def setup():
 
       },
   }
+  
+  inputParameters = {
+      "Overall": {
+          "daysPerYear": 365,
+      },
+      "Busniess Equity": {
+          "busEpsScalar": 1.1,
+          "alphaBusRaw": 0.035,
 
+          "smallBlend": 0.4,
+          "largeBlend": 0.6,
+      },
+      "Chunks": {
+          "totalPaths": 5000,
+          "chunkSize": 1,
+      },
+      "Correlation Modifier": {
+        "Global Scalar": 1.0,
+        "assetClassScalars": {
+            "Business Equity": 1.0,
+            "Deposits": 1.0,
+            "Equities": 1.0,
+            "Property": 1.0,
+        },
+        "Mode": "Global"
+      },
+      "percentile_bands": {
+      '50% Band': {
+          'high': 75,
+          'low': 25
+      },
+      '80% Band': {
+          'high': 90,
+          'low': 10
+      },
+      '90% Band': {
+          'high': 95,
+          'low': 5,
+      },
+      '98% Band': {
+          'high': 99,
+          'low': 1,
+      }
 
+  }
+      
+
+  }
+
+  scenarios = [
+    {
+      "type": "returns",
+      "name": "LowerReturns10",
+      "muScalar": 0.9,
+      "volScalar": 1.00,
+      
+    },
+    {
+        "type": "returns",
+        "name": "HigherReturns10",
+        "muScalar": 1.10,
+        "volScalar": 1.00
+    },
+  
+   {
+    "type": "volatility",
+    "name": "LowerVolatility10",
+    "muScalar": 1.0,
+    "volScalar": 0.90
+   },
+   {
+      "type": "volatility",
+      "name": "HigherVolatility10",
+      "muScalar": 1.00,
+      "volScalar": 1.10
+   },
+  
+    {
+      "type": "correlation",
+      "name": "globalHigher10",
+      "Global Scalar": 1.10,
+      "Mode": "Global",
+    },
+    {
+      "type": "correlation",
+      "name": "globalLower10",
+      "Global Scalar": 0.90,
+      "Mode": "Global"
+    },
+    {
+      "type": "correlation",
+      "name": "globalHigher20",
+      "Global Scalar": 1.20,
+      "Mode": "Global"
+    },
+    {
+      "type": "correlation",
+      "name": "globalLower20",
+      "Global Scalar":0.80,
+      "Mode": "Global"
+    }
+  ]
 
 
   assets = {
@@ -8941,54 +9042,6 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
 
 
 
-inputParameters = {
-    "Overall": {
-        "daysPerYear": 365,
-    },
-    "Busniess Equity": {
-        "busEpsScalar": 1.1,
-        "alphaBusRaw": 0.035,
-
-        "smallBlend": 0.4,
-        "largeBlend": 0.6,
-    },
-    "Chunks": {
-        "totalPaths": 5000,
-        "chunkSize": 1,
-    },
-    "Correlation Modifier": {
-       "Global Scalar": 1.0,
-       "assetClassScalars": {
-          "Business Equity": 1.0,
-          "Deposits": 1.0,
-          "Equities": 1.0,
-          "Property": 1.0,
-       },
-       "Mode": "Global"
-    },
-    "percentile_bands": {
-    '50% Band': {
-        'high': 75,
-        'low': 25
-    },
-    '80% Band': {
-        'high': 90,
-        'low': 10
-    },
-    '90% Band': {
-        'high': 95,
-        'low': 5,
-    },
-    '98% Band': {
-        'high': 99,
-        'low': 1,
-    }
-
-}
-    
-
-}
-
 
 #
 
@@ -9044,59 +9097,7 @@ def applyReturnShock(coeffsDict, muScalar=1.0, volScalar=1.0, target=None):
         #   cd['alpha1'] = alpha1 * volScalar ** 2
   return shocked
 
-scenarios = [
-    {
-      "type": "returns",
-      "name": "LowerReturns10",
-      "muScalar": 1.10,
-      "volScalar": 1.00,
-      
-    },
-    {
-        "type": "returns",
-        "name": "HigherReturns10",
-        "muScalar": 1.10,
-        "volScalar": 1.00
-    },
-  
-   {
-    "type": "volatility",
-    "name": "LowerVolatility10",
-    "muScalar": 1.10,
-    "volScalar": 0.90
-   },
-   {
-      "type": "volatility",
-      "name": "HigherVolatility10",
-      "muScalar": 1.00,
-      "volScalar": 1.10
-   },
-  
-    {
-      "type": "correlation",
-      "name": "globalHigher10",
-      "Global Scalar": 1.10,
-      "Mode": "Global",
-    },
-    {
-      "type": "correlation",
-      "name": "globalLower10",
-      "Global Scalar": 0.90,
-      "Mode": "Global"
-    },
-    {
-      "type": "correlation",
-      "name": "globalHigher20",
-      "Global Scalar": 1.20,
-      "Mode": "Global"
-    },
-    {
-      "type": "correlation",
-      "name": "globalLower20",
-      "Global Scalar":0.80,
-      "Mode": "Global"
-    }
-  ]
+
 
 
 
