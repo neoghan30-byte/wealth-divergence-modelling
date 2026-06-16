@@ -7679,7 +7679,7 @@ def runMonteCarloReal(N, sampleStep, coeffsDict, fullCorr, allTickersOrdered, as
 
 def runChunks(inputParameters, coeffsDict, fullCorr, allTickersOrdered, assetWeights, assets, assetsCompleted, assetsYahoo,
               corrAbleClasses, households,
-              time, returnsDict, folder, V_num, busEpsScalar=1.1, alphaBus=None, testOneChunk=True, master_seed=None):
+              time, returnsDict, folder, V_num, busEpsScalar=1.1, alphaBus=None, testOneChunk=False, master_seed=None):
   totalPaths = inputParameters['Chunks']['totalPaths']#5000
   chunkSize = inputParameters['Chunks']['chunkSize']
   daysPerYear = inputParameters["Overall"]["daysPerYear"]
