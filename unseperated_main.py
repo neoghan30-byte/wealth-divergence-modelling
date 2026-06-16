@@ -558,10 +558,10 @@ def wealthGapDistribution(chunk_folder: str, households: list, V_num,
 #             print(f"  Saved backtest_table.png to {save_folder}")
 #     plt.show()
 
-def multiBandBacktest(chunk_folder: str, coeffs_dict: dict,
+def multiBandBacktest(sim_horizon: dict, hist_horizon: dict,
                       assets_completed: dict, asset_weights: dict,
                       households: list, time_hist: list,
-                      PERCENTILE_BANDS: dict, V_num: str, verbose: bool = False) -> dict:
+                      PERCENTILE_BANDS: dict, V_num: str, verbose: bool = False, chunk_folder: str = None, coeffs_dict: dict = None) -> dict:
     """
     Coverage test at four simultaneous probability bands.
 
@@ -578,57 +578,57 @@ def multiBandBacktest(chunk_folder: str, coeffs_dict: dict,
         "hist_one_year" : dict — per-household array of historical 1Y returns
     """
     # Build historical portfolio
-    if verbose:
-        print("=== Multi-band backtest: building historical returns ===")
-    hist_portfolio, _ = _build_hist_portfolio(
-        coeffs_dict, assets_completed, asset_weights, households, time_hist,
-        verbose=verbose
-    )
-    hist_one_year = {
-        h: _rolling_one_year(hist_portfolio[h].values, 252)
-        for h in households
-    }
+    # if verbose:
+    #     print("=== Multi-band backtest: building historical returns ===")
+    # hist_portfolio, _ = _build_hist_portfolio(
+    #     coeffs_dict, assets_completed, asset_weights, households, time_hist,
+    #     verbose=verbose
+    # )
+    # hist_one_year = {
+    #     h: _rolling_one_year(hist_portfolio[h].values, 252)
+    #     for h in households
+    # }
 
-    # Stream simulated 1-year returns from chunks
-    sim_one_year = {h: [] for h in households}
-    chunk_files  = _sorted_chunk_files(chunk_folder, V_num)
-    if not chunk_files:
-        raise FileNotFoundError(f"No chunk files in {chunk_folder}")
+    # # Stream simulated 1-year returns from chunks
+    # sim_one_year = {h: [] for h in households}
+    # chunk_files  = _sorted_chunk_files(chunk_folder, V_num)
+    # if not chunk_files:
+    #     raise FileNotFoundError(f"No chunk files in {chunk_folder}")
 
-    for fname in chunk_files:
-        fpath = os.path.join(chunk_folder, fname)
-        try:
-            try: 
-                with zstd.open(fpath, "rb") as f:
-                  saved = pickle.load(f)
-            except zstd.ZstdError:
-               with open(fpath, "rb") as f:
-                saved = pickle.load(f)
-        except Exception as e:
-            print(f"Skipping corrupted chunk {fname}: {e}")
-            continue
-        # with open(fpath, "rb") as f:
-        #     saved = pickle.load(f)
-        ret_paths = saved["chunkResults"]["monteCarlo"]["allHouseholdRet"]
-        for path in ret_paths:
-            for h in households:
-                arr = path[h]
-                one_yr = (np.prod(1 + arr[:252]) - 1) if len(arr) >= 252 \
-                         else (np.prod(1 + arr) - 1)
-                sim_one_year[h].append(one_yr)
-        del saved
-        gc.collect()
+    # for fname in chunk_files:
+    #     fpath = os.path.join(chunk_folder, fname)
+    #     try:
+    #         try: 
+    #             with zstd.open(fpath, "rb") as f:
+    #               saved = pickle.load(f)
+    #         except zstd.ZstdError:
+    #            with open(fpath, "rb") as f:
+    #             saved = pickle.load(f)
+    #     except Exception as e:
+    #         print(f"Skipping corrupted chunk {fname}: {e}")
+    #         continue
+    #     # with open(fpath, "rb") as f:
+    #     #     saved = pickle.load(f)
+    #     ret_paths = saved["chunkResults"]["monteCarlo"]["allHouseholdRet"]
+    #     for path in ret_paths:
+    #         for h in households:
+    #             arr = path[h]
+    #             one_yr = (np.prod(1 + arr[:252]) - 1) if len(arr) >= 252 \
+    #                      else (np.prod(1 + arr) - 1)
+    #             sim_one_year[h].append(one_yr)
+    #     del saved
+    #     gc.collect()
 
-    if verbose:
-        for h in households:
-            print(f"  [{h}] {len(sim_one_year[h])} simulated paths loaded")
+    # if verbose:
+    #     for h in households:
+    #         print(f"  [{h}] {len(sim_one_year[h])} simulated paths loaded")
 
     # Compute coverage at each band for each household
     coverage = {}   # household -> {band_name -> pct_covered}
     for h in households:
         coverage[h] = {}
-        hist_vals = hist_one_year[h]
-        sim_vals  = np.array(sim_one_year[h])
+        hist_vals = hist_horizon[h]
+        sim_vals  = np.array(sim_horizon[h])
         for band_name, edges in PERCENTILE_BANDS.items():
             lo = np.percentile(sim_vals, edges["low"])
             hi = np.percentile(sim_vals, edges["high"])
@@ -690,11 +690,11 @@ def _crps_single(forecast_samples: np.ndarray, actual: float) -> float:
     return term1 - term2
 
 
-def crpsAnalysis(chunk_folder: str, coeffs_dict: dict,
-                 assets_completed: dict, asset_weights: dict,
+def crpsAnalysis(sim_horizon: dict, hist_horizon: dict,
                  households: list, time_hist: list,
                  V_num: str, n_hist_sample: int = 2000,
-                 verbose: bool = True) -> dict:
+                 verbose: bool = True) -> dict: #chunk_folder: str, coeffs_dict: dict,
+                #  assets_completed: dict, asset_weights: dict,
     """
     Compute the mean CRPS for each household's simulated 1-year return
     distribution against actual historical 1-year returns.
@@ -718,42 +718,42 @@ def crpsAnalysis(chunk_folder: str, coeffs_dict: dict,
         "hist_one_year" : {household: np.array of historical 1Y returns}
     """
     # Build historical portfolio
-    if verbose:
-        print("=== CRPS analysis: building historical returns ===")
-    hist_portfolio, _ = _build_hist_portfolio(
-        coeffs_dict, assets_completed, asset_weights, households, time_hist,
-        verbose=verbose
-    )
-    hist_one_year = {
-        h: _rolling_one_year(hist_portfolio[h].values, 252)
-        for h in households
-    }
+    # if verbose:
+    #     print("=== CRPS analysis: building historical returns ===")
+    # hist_portfolio, _ = _build_hist_portfolio(
+    #     coeffs_dict, assets_completed, asset_weights, households, time_hist,
+    #     verbose=verbose
+    # )
+    # hist_one_year = {
+    #     h: _rolling_one_year(hist_portfolio[h].values, 252)
+    #     for h in households
+    # }
 
-    # Stream simulated 1-year returns
-    sim_one_year = {h: [] for h in households}
-    chunk_files  = _sorted_chunk_files(chunk_folder, V_num)
-    if not chunk_files:
-        raise FileNotFoundError(f"No chunk files in {chunk_folder}")
+    # # Stream simulated 1-year returns
+    # sim_one_year = {h: [] for h in households}
+    # chunk_files  = _sorted_chunk_files(chunk_folder, V_num)
+    # if not chunk_files:
+    #     raise FileNotFoundError(f"No chunk files in {chunk_folder}")
 
-    for fname in chunk_files:
-        fpath = os.path.join(chunk_folder, fname)
+    # for fname in chunk_files:
+    #     fpath = os.path.join(chunk_folder, fname)
         
-        try: 
-            with zstd.open(fpath, "rb") as f:
-              saved = pickle.load(f)
-        except zstd.ZstdError:
-            with open(fpath, "rb") as f:
-              saved = pickle.load(f)
+    #     try: 
+    #         with zstd.open(fpath, "rb") as f:
+    #           saved = pickle.load(f)
+    #     except zstd.ZstdError:
+    #         with open(fpath, "rb") as f:
+    #           saved = pickle.load(f)
       
-        ret_paths = saved["chunkResults"]["monteCarlo"]["allHouseholdRet"]
-        for path in ret_paths:
-            for h in households:
-                arr = path[h]
-                one_yr = (np.prod(1 + arr[:252]) - 1) if len(arr) >= 252 \
-                         else (np.prod(1 + arr) - 1)
-                sim_one_year[h].append(one_yr)
-        del saved
-        gc.collect()
+    #     ret_paths = saved["chunkResults"]["monteCarlo"]["allHouseholdRet"]
+    #     for path in ret_paths:
+    #         for h in households:
+    #             arr = path[h]
+    #             one_yr = (np.prod(1 + arr[:252]) - 1) if len(arr) >= 252 \
+    #                      else (np.prod(1 + arr) - 1)
+    #             sim_one_year[h].append(one_yr)
+    #     del saved
+    #     gc.collect()
 
     # Compute CRPS for each household
     crps_scores     = {}
@@ -762,8 +762,8 @@ def crpsAnalysis(chunk_folder: str, coeffs_dict: dict,
     # np.random.seed(42)   # reproducible sampling
     rng2 = np.random.default_rng(42)
     for h in households:
-        sim_arr  = np.array(sim_one_year[h])
-        hist_arr = hist_one_year[h]
+        sim_arr  = np.array(sim_horizon[h])
+        hist_arr = hist_horizon[h]
 
         # Sample historical windows (or use all if fewer than n_hist_sample)
         if len(hist_arr) > n_hist_sample:
@@ -802,8 +802,8 @@ def crpsAnalysis(chunk_folder: str, coeffs_dict: dict,
           "crps_scores":    crps_scores,
           "crps_df":        crps_df,
           "crps_per_window": crps_per_window,
-          "sim_one_year":   sim_one_year,
-          "hist_one_year":  hist_one_year},
+          "sim_one_year":   sim_horizon,
+          "hist_one_year":  hist_horizon},
     }
 
 
@@ -822,6 +822,7 @@ def run_combined_analysis(
     V_num: str,
     convergence_checkpoints: list = None,
     trading_days_per_year: int = 252,
+    horizon_years: int = 5,
     backtest_pass_threshold: float = 0.85,
     sim_low_pct: float = 5.0,
     sim_high_pct: float = 95.0,
@@ -860,26 +861,27 @@ def run_combined_analysis(
     if convergence_checkpoints is None:
         convergence_checkpoints = [100, 500, 1000, 2000, 3000, 5000]
     checkpoints = sorted(set(convergence_checkpoints))
+    horizon_days = trading_days_per_year * horizon_years
 
     # ------------------------------------------------------------------
     # PREP: build historical portfolio return series (needed for backtest)
     # ------------------------------------------------------------------
     if verbose:
-        print("=== Building historical portfolio returns ===")
+        print(f"=== Building historical portfolio returns {horizon_years}-Year Horizion ===")
     hist_portfolio, _ = _build_hist_portfolio(
         coeffs_dict, assets_completed, asset_weights, households, time_hist,
         trading_days_per_year=trading_days_per_year, verbose=verbose
     )
 
     # Rolling 1-year windows from history (computed once, stored as arrays)
-    hist_one_year = {
-        h: _rolling_one_year(hist_portfolio[h].values, trading_days_per_year)
+    hist_horizion = {
+        h: _rolling_one_year(hist_portfolio[h].values, horizon_days)
         for h in households
     }
     if verbose:
         for h in households:
-            print(f"  [{h}] {len(hist_one_year[h])} historical rolling windows. "
-                  f"Mean: {np.nanmean(hist_one_year[h]):.2%}")
+            print(f"  [{h}] {len(hist_horizion[h])} historical rolling windows. "
+                  f"Mean: {np.nanmean(hist_horizion[h]):.2%}")
 
     # ------------------------------------------------------------------
     # STREAMING PASS
@@ -901,8 +903,8 @@ def run_combined_analysis(
 
     welford_n    = 0                                  # total paths seen so far
     welford_mean = {h: None for h in households}      # running mean arrays
-    # For backtest: accumulate 1-year sim endpoints
-    sim_one_year = {h: [] for h in households}
+  
+    sim_horizon = {h: [] for h in households}
 
     # Storage for convergence snapshots
     convergence_records = []
@@ -951,13 +953,13 @@ def run_combined_analysis(
                 else:
                     welford_mean[h] += (cum_arr[-1] - welford_mean[h]) / welford_n
 
-                # ---- Backtest: 1-year endpoint from this path ----
+                # ---- Backtest: 5-year endpoint from this path ----
                 ret_arr = ret_path[h]
-                if len(ret_arr) >= trading_days_per_year:
-                    one_yr = np.prod(1 + ret_arr[:trading_days_per_year]) - 1
+                if len(ret_arr) >= horizon_days:
+                    horizon_ret = np.prod(1 + ret_arr[:horizon_days]) - 1
                 else:
-                    one_yr = np.prod(1 + ret_arr) - 1
-                sim_one_year[h].append(one_yr)
+                    horizon_ret = np.prod(1 + ret_arr) - 1
+                sim_horizon[h].append(horizon_ret)
 
             # ---- Convergence checkpoint ----
             # Record whenever we hit (or first pass) a checkpoint
@@ -1008,11 +1010,11 @@ def run_combined_analysis(
        "raw": {
         "convergence_df": convergence_df,
         "convergence_raw": convergence_records,
-        "sim_one_year": sim_one_year,
-        "hist_one_year": hist_one_year,
+        "sim_horizon": sim_horizon,
+        "hist_horizon": hist_horizon,
         "path_number": welford_n}
     }
-def back_Test_pass_fail_results(households, hist_one_year, sim_one_year, backtest_pass_threshold, sim_low_pct, sim_high_pct, verbose=False):
+def back_Test_pass_fail_results(households, hist_horizion, sim_horizion, backtest_pass_threshold, sim_low_pct, sim_high_pct, verbose=False):
     # ------------------------------------------------------------------
     # BACKTEST PASS/FAIL
     # ------------------------------------------------------------------
@@ -1023,8 +1025,8 @@ def back_Test_pass_fail_results(households, hist_one_year, sim_one_year, backtes
     backtest_raw  = {}
 
     for h in households:
-        hist_vals = hist_one_year[h]
-        sim_vals  = np.array(sim_one_year[h])
+        hist_vals = hist_horizion[h]
+        sim_vals  = np.array(sim_horizion[h])
 
         sim_lo = np.percentile(sim_vals, sim_low_pct)
         sim_hi = np.percentile(sim_vals, sim_high_pct)
@@ -1034,8 +1036,8 @@ def back_Test_pass_fail_results(households, hist_one_year, sim_one_year, backtes
         passed    = pct_in >= backtest_pass_threshold
 
         backtest_raw[h] = {
-            "hist_one_year": hist_vals,
-            "sim_one_year":  sim_vals,
+            "hist_horizion": hist_vals,
+            "sim_horizion":  sim_vals,
             "sim_lo":        sim_lo,
             "sim_hi":        sim_hi,
             "pct_within":    pct_in,
@@ -1775,7 +1777,21 @@ def get_metric_analysis(
     save_folder: str = None,
     debugMetrics: bool = False, 
     ):
+  
       #households, coeffs_dict, assets_completed, asset_weights, time_hist, save_folder, percentile_bands):
+  convergence_results = run_combined_analysis(
+      chunk_folder = chunk_folder,
+      coeffs_dict = coeffs_dict,
+      assets_completed = assets_completed,
+      asset_weights = asset_weights,
+      households = households,
+      time_hist = time_hist,
+      V_num = V_num,
+      horizon_years=5
+  )
+  hist_horizon = convergence_results["raw"].get("hist_horizon")
+  sim_horizon = convergence_results["raw"].get("sim_horizon")
+
   #===== calling other back tests
   gap_results = wealthGapDistribution(
         chunk_folder = chunk_folder,
@@ -1785,10 +1801,8 @@ def get_metric_analysis(
   )
   
   band_results = multiBandBacktest(
-      chunk_folder = chunk_folder,
-      coeffs_dict = coeffs_dict,
-      assets_completed = assets_completed,
-      asset_weights = asset_weights,
+      sim_horizon = sim_horizon,
+      hist_horizon = hist_horizon,
       households = households,
       time_hist = time_hist,
       PERCENTILE_BANDS = percentile_bands,
@@ -1796,33 +1810,21 @@ def get_metric_analysis(
       verbose=debugMetrics
   )
   crps_results = crpsAnalysis(
-      chunk_folder = chunk_folder,
-      coeffs_dict = coeffs_dict,
-      assets_completed = assets_completed,
-      asset_weights = asset_weights,
+      sim_horizon = sim_horizon,
+      hist_horizon = hist_horizon,
       households = households,
       time_hist = time_hist,
       V_num = V_num,
       verbose=debugMetrics
   )
 
-  convergence_results = run_combined_analysis(
-      chunk_folder = chunk_folder,
-      coeffs_dict = coeffs_dict,
-      assets_completed = assets_completed,
-      asset_weights = asset_weights,
-      households = households,
-      time_hist = time_hist,
-      V_num = V_num,
-  )
-  hist_one_year = convergence_results["raw"].get("hist_one_year")
-  sim_one_year = convergence_results["raw"].get("sim_one_year")
+ 
   mean_household_results = meanHousePath(aggRes, households)
   asset_vol_results = getAssetVolTable(asset_level_res)
   house_cum_results = houseCumSampleWithSigmaBanded(aggRes, time_hist, households)
   house_vol_results = getHouseholdVolTable(aggRes, households)
   asset_class_vol_results = assetClassVolatility(asset_level_res) #Not a DF, two lists
-  back_test_results = back_Test_pass_fail_results(households, hist_one_year, sim_one_year, 
+  back_test_results = back_Test_pass_fail_results(households, hist_horizon, sim_horizon, 
                                                   backtest_pass_threshold=backtest_pass_threshold, sim_low_pct=sim_low_pct, 
                                                   sim_high_pct=sim_high_pct, verbose=debugMetrics)
 
@@ -3656,7 +3658,8 @@ def setup():
       "Overall": {
           "daysPerYear": 365,
           "useCholesky": False,
-          "df_t": 5
+          "df_t": 5,
+          "needed_graphs": 500
 
       },
       "Busniess Equity": {
@@ -4284,7 +4287,9 @@ def aggregate_to_asset_paths(nTotalPaths, V_num):
 
           if pathCounter >= nTotalPaths:
               break
-
+          del chunk, mcData, assetReturnPathsList
+          
+          gc.collect()
       # -------------------------------------------------
       # compute sigma
       # -------------------------------------------------
@@ -4345,7 +4350,7 @@ def aggregate_to_asset_paths(nTotalPaths, V_num):
 
   all_files.sort(key=extract_start_index)
 
-  partial_results = []
+  # partial_results = []
 
   count = 0
   for fname in all_files:
@@ -4355,19 +4360,23 @@ def aggregate_to_asset_paths(nTotalPaths, V_num):
             try:
                 with zstd.open(filePath, "rb") as f:
                     chunkData = pickle.load(f)
-                    partial_results.append(chunkData)
+                    # partial_results.append(chunkData)
                     count += 1
                     print(f"Loaded {fname}, chunk index = {chunkData['chunkIndex']}")
             except zstd.ZstdError:
                 with open(filePath, "rb") as f:
                     chunkData = pickle.load(f)
-                    partial_results.append(chunkData)
+                    # partial_results.append(chunkData)
                     count += 1
                     print(f"Loaded {fname}, chunk index = {chunkData['chunkIndex']}")
+            inputs = chunkData['chunkResults']['inputs']
+            del chunkData
+            gc.collect() # Force clear RAM
+            
         except Exception as e:
             print(f"Failed to load {fname}: {e}")
 
-  inputs = partial_results[0]['chunkResults']['inputs']
+
   time = pd.to_datetime(inputs['time'])
   xAxisDates = pd.to_datetime(time)
   assetWeights = inputs['assetWeights']
@@ -7685,9 +7694,10 @@ def runChunks(inputParameters, coeffsDict, fullCorr, allTickersOrdered, assetWei
   daysPerYear = inputParameters["Overall"]["daysPerYear"]
   busEpsScalar = inputParameters["Busniess Equity"]["busEpsScalar"]
   alphaBus = inputParameters["Busniess Equity"]["alphaBusRaw"] / daysPerYear
-  samplePathsTarget = 150
+  samplePathsTarget = inputParameters["Overall"]["needed_graphs"]
+  # samplePathsTarget = 150
   overAllResults = {}
-
+  sampleStep = max(1, totalPaths // samplePathsTarget)
 
   debugChunk = True
   import copy
@@ -7767,7 +7777,8 @@ def runChunks(inputParameters, coeffsDict, fullCorr, allTickersOrdered, assetWei
 
   startBase = existing_max + 1
 
-  allPathsPortRet_global = []
+  # allPathsPortRet_global = []
+
   print(f"Continuing from path index {startBase}")
   for start in range(startBase, startBase + totalPaths, chunkSize):
     end = min(start + chunkSize, totalPaths)
@@ -7792,7 +7803,7 @@ def runChunks(inputParameters, coeffsDict, fullCorr, allTickersOrdered, assetWei
 # )
     try:
       chunkResData = runMonteCarloReal(
-          N=nChunk, sampleStep=4, coeffsDict=coeffsDict, fullCorr=fullCorr, allTickersOrdered=allTickersOrdered, assetWeights=assetWeights,
+          N=nChunk, sampleStep=sampleStep, coeffsDict=coeffsDict, fullCorr=fullCorr, allTickersOrdered=allTickersOrdered, assetWeights=assetWeights,
           assetsCompleted=assetsCompleted, assetsYahoo=assetsYahoo, corrAbleClasses=corrAbleClasses,
           households=households, time=time, returnsDict=returnsDict, inputParameters=inputParameters, busEpsScalar=busEpsScalar, 
           alphaBus=alphaBus, chunk_idx=chunk_idx, master_seed=master_seed,)
@@ -7816,7 +7827,7 @@ def runChunks(inputParameters, coeffsDict, fullCorr, allTickersOrdered, assetWei
         "chunkIndex": (start, start + nChunk - 1),
         "chunkResults": chunkResult
     }
-    allPathsPortRet_global.append(chunkResult['monteCarlo']['allHouseholdRet'])
+    # allPathsPortRet_global.append(chunkResult['monteCarlo']['allHouseholdRet'])
 
     # saving to drive
     filePath = os.path.join(chunkFolder, f"Chunk_Results_{V_num}_{start}_{start+nChunk-1}.pkl")
@@ -9411,7 +9422,7 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
 # main(inputParameters, 8)
 #=====================================
 
-# currentRun = 22
+# currentRun = 122
 # baseline_output = main(V_num=f"baseline_debug{currentRun}", inputParameters=None, testOneChunk=True)
 # baseline_dict = baseline_output["comparable_results"] 
 # selection = ['HigherReturns10', "globalHigher10", "SmallCapHeavy"]
