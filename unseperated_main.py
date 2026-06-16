@@ -867,21 +867,21 @@ def run_combined_analysis(
     # PREP: build historical portfolio return series (needed for backtest)
     # ------------------------------------------------------------------
     if verbose:
-        print(f"=== Building historical portfolio returns {horizon_years}-Year Horizion ===")
+        print(f"=== Building historical portfolio returns {horizon_years}-Year Horizon ===")
     hist_portfolio, _ = _build_hist_portfolio(
         coeffs_dict, assets_completed, asset_weights, households, time_hist,
         trading_days_per_year=trading_days_per_year, verbose=verbose
     )
 
     # Rolling 1-year windows from history (computed once, stored as arrays)
-    hist_horizion = {
+    hist_horizon = {
         h: _rolling_one_year(hist_portfolio[h].values, horizon_days)
         for h in households
     }
     if verbose:
         for h in households:
-            print(f"  [{h}] {len(hist_horizion[h])} historical rolling windows. "
-                  f"Mean: {np.nanmean(hist_horizion[h]):.2%}")
+            print(f"  [{h}] {len(hist_horizon[h])} historical rolling windows. "
+                  f"Mean: {np.nanmean(hist_horizon[h]):.2%}")
 
     # ------------------------------------------------------------------
     # STREAMING PASS
@@ -1014,7 +1014,7 @@ def run_combined_analysis(
         "hist_horizon": hist_horizon,
         "path_number": welford_n}
     }
-def back_Test_pass_fail_results(households, hist_horizion, sim_horizion, backtest_pass_threshold, sim_low_pct, sim_high_pct, verbose=False):
+def back_Test_pass_fail_results(households, hist_horizon, sim_horizon, backtest_pass_threshold, sim_low_pct, sim_high_pct, verbose=False):
     # ------------------------------------------------------------------
     # BACKTEST PASS/FAIL
     # ------------------------------------------------------------------
@@ -1025,8 +1025,8 @@ def back_Test_pass_fail_results(households, hist_horizion, sim_horizion, backtes
     backtest_raw  = {}
 
     for h in households:
-        hist_vals = hist_horizion[h]
-        sim_vals  = np.array(sim_horizion[h])
+        hist_vals = hist_horizon[h]
+        sim_vals  = np.array(sim_horizon[h])
 
         sim_lo = np.percentile(sim_vals, sim_low_pct)
         sim_hi = np.percentile(sim_vals, sim_high_pct)
@@ -1036,8 +1036,8 @@ def back_Test_pass_fail_results(households, hist_horizion, sim_horizion, backtes
         passed    = pct_in >= backtest_pass_threshold
 
         backtest_raw[h] = {
-            "hist_horizion": hist_vals,
-            "sim_horizion":  sim_vals,
+            "hist_horizon": hist_vals,
+            "sim_horizon":  sim_vals,
             "sim_lo":        sim_lo,
             "sim_hi":        sim_hi,
             "pct_within":    pct_in,
@@ -3673,7 +3673,7 @@ def setup():
           "largeCapTicker": '^125904-USD-STRD'
       },
       "Chunks": {
-          "totalPaths": 300,
+          "totalPaths": 250,
           "chunkSize": 50,
       },
       "Correlation Modifier": {
