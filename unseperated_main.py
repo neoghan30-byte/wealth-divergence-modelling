@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
-
+import psutil
 import os
 
 if os.path.exists("/content/drive/MyDrive"):
@@ -8,7 +8,7 @@ if os.path.exists("/content/drive/MyDrive"):
 else:
     data_dir = Path(r"G:\My Drive\Young_Economist")
 print(f"Hello WOrld")
-use_GoogleDrive = True 
+use_GoogleDrive = False 
 use_colab = False
 # 2. DEFINE THE PATHS
 if use_GoogleDrive:
@@ -3673,8 +3673,8 @@ def setup():
           "largeCapTicker": '^125904-USD-STRD'
       },
       "Chunks": {
-          "totalPaths": 250,
-          "chunkSize": 50,
+          "totalPaths": 10,
+          "chunkSize": 10,
       },
       "Correlation Modifier": {
         "Global Scalar": 1.0,
@@ -8861,6 +8861,8 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
         #     f"returnsDict has total days exceeding 50%: {excessDays} out of {total_days}"
         # )
         explode_test(3, returnsDict, "main() runChunks")
+        print(f"RAM: (getCoeffs) {psutil.Process().memory_info().rss / 1024**3:.2f} GB"
+)
         # assert np.any(np.abs(returnsDict) < 0.6), f"returnsDict has total days exceeding 50%: {np.sum(returnsDict.abs()) > 0.5)} out of {len(r)}"
   except Exception:
         print("FAILED IN GETCOEFFS")
@@ -8875,7 +8877,8 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
     # if debugLocal: V_num = "debug"
     aggres = runChunks(inputParameters, coeffsDict, fullCorr, allTickersOrdered, cfg["assetWeights"], cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], 
                        cfg["corrAbleClasses"], cfg["households"], cfg["time"], returnsDict, cfg["folder"], V_num, testOneChunk, master_seed=None)
-    aggres
+    print(f"RAM: (aggres) {psutil.Process().memory_info().rss / 1024**3:.2f} GB"
+)
   except Exception:
     print(f"FAILED IN RUN CHUNKS")
     traceback.print_exc()
@@ -8911,7 +8914,8 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
           nTotalPaths=inputParameters["Chunks"]["totalPaths"],
           V_num=V_num
       )
-
+      print(f"RAM: (asset agg) {psutil.Process().memory_info().rss / 1024**3:.2f} GB"
+)
   except Exception:
       print("FAILED IN ASSET AGGREGATION")
       traceback.print_exc()
@@ -8928,6 +8932,8 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
           households=cfg["households"],
           assetsCompleted=cfg["assetsCompleted"]
       )
+      print(f"RAM: (port agg) {psutil.Process().memory_info().rss / 1024**3:.2f} GB"
+)
 
   except Exception:
       print("FAILED IN PORTFOLIO AGGREGATION")
@@ -8952,6 +8958,8 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
         asset_level_res = assetResults
 
       )
+      print(f"RAM: metric_results {psutil.Process().memory_info().rss / 1024**3:.2f} GB"
+)
       # print(f"WOOOOO results: {metric_results['results']['house_cum_results']['house_cum_df']}")
       comparable_results_new = get_comparable_results(
         metric_results=metric_results,
@@ -8960,6 +8968,8 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
         metric_config=metric_config,
         coeffsDict=coeffsDict,
         sensitivity_results=comparable_results)
+      print(f"RAM: comparable results {psutil.Process().memory_info().rss / 1024**3:.2f} GB"
+)
   except Exception:
       print("FAILED IN GRAPHING")
       traceback.print_exc()
@@ -8977,6 +8987,8 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
           metric_results=metric_results,
           tablesNeeded=True
       )
+      print(f"RAM: graphing {psutil.Process().memory_info().rss / 1024**3:.2f} GB"
+)
 
   except Exception:
       print("FAILED IN GRAPHING")
@@ -9422,18 +9434,18 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
 # main(inputParameters, 8)
 #=====================================
 
-# currentRun = 122
-# baseline_output = main(V_num=f"baseline_debug{currentRun}", inputParameters=None, testOneChunk=True)
-# baseline_dict = baseline_output["comparable_results"] 
-# selection = ['HigherReturns10', "globalHigher10", "SmallCapHeavy"]
-# comparable_results = runSensitivityTests(inputParameters=None, scenarios=None, metric_config=None, V_num=f"sensitivityDebug{currentRun}", testOneChunk=True, selection=None, sensitivityResults=baseline_dict)
-# try:
-#   run_comparable_result_analysis(comparable_results)
-# except Exception:
-#         print("FAILED IN sensitivty analysis")
-#         traceback.print_exc()
-#         stackprinter.show(style='lightbg')
-#         raise
+currentRun = 122
+baseline_output = main(V_num=f"baseline_debug{currentRun}", inputParameters=None, testOneChunk=True)
+baseline_dict = baseline_output["comparable_results"] 
+selection = ['HigherReturns10', "globalHigher10", "SmallCapHeavy"]
+comparable_results = runSensitivityTests(inputParameters=None, scenarios=None, metric_config=None, V_num=f"sensitivityDebug{currentRun}", testOneChunk=True, selection=None, sensitivityResults=baseline_dict)
+try:
+  run_comparable_result_analysis(comparable_results)
+except Exception:
+        print("FAILED IN sensitivty analysis")
+        traceback.print_exc()
+        stackprinter.show(style='lightbg')
+        raise
 
 def runAnalysisGraphingPipelineOnly(inputParameters, scenarios, metric_config, V_num, testOneChunk=False, selection=None, sensitivityResults=None):
    
