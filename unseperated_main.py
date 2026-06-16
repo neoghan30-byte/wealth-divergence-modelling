@@ -27,6 +27,18 @@ else:
 # 3. 
 chunk_dir = data_dir / "chunkResults"
 graph_dir = data_dir / "graphs"
+# print(os.path.exists(r"C:\Users\eogha\AppData\Local\Google"))
+
+def validate_simulation(results):
+
+    n = len(results["time"])
+
+    for asset in results["assets"]:
+
+        assert len(asset["returns"]) == n
+        assert len(asset["wealth"]) == n
+
+    return True
 
 # ________________________________________________________-
 # analysis_from_chunks.py
@@ -89,9 +101,37 @@ import copy
 import gc
 import numbers
 from icecream import ic
+from scipy.stats import multivariate_t, t, norm
 # Q-Q plot: Are simulated quantiles matching historical?
 # probplot(hist_vals, dist=('norm', np.nanmean(sim_vals), np.nanstd(sim_vals)))
+# import os
 
+# base = r"C:\Users\eogha\AppData\Local"
+
+# for folder in os.listdir(base):
+#     full = os.path.join(base, folder)
+
+#     if os.path.isdir(full):
+#         total = 0
+
+#         try:
+#             for root, dirs, files in os.walk(full):
+#                 for f in files:
+#                     try:
+#                         total += os.path.getsize(
+#                             os.path.join(root, f)
+#                         )
+#                     except:
+#                         pass
+
+#             print(
+#                 f"{folder:30}",
+#                 f"{total/1e9:.2f} GB"
+#             )
+
+#         except Exception as e:
+#             print(f"Error in {full}, {e}")
+#             pass
 # #===================================================================
 # Internal helpers
 # #===================================================================
@@ -238,7 +278,7 @@ def _build_hist_portfolio(
 
             # Monthly data (< 500 obs) → resample to daily via ffill
             if len(s) < 500:
-                s = s.resample("D").ffill()
+                s = s.resample("D").ffill() / 21
                 if verbose:
                     print(f"  [{ticker}] monthly → resampled to daily, "
                           f"length {len(s)}")
@@ -248,24 +288,17 @@ def _build_hist_portfolio(
                           f"mean {s.mean():.5f}")
 
             daily_series[ticker] = s
-
-    # ---- Step 2: common window (only assets with ≥10 years history)
-    cutoff = pd.Timestamp("2010-01-01")
-    long_series = {t: s for t, s in daily_series.items() if s.index[0] <= cutoff}
-    if not long_series:
-        long_series = daily_series  # fallback: use all
-
-    common_start = max(s.index[0] for s in long_series.values())
-    common_end   = min(s.index[-1] for s in long_series.values())
-    ref_ticker   = max(long_series, key=lambda t: len(long_series[t]))
-    common_index = long_series[ref_ticker].loc[common_start:common_end].index
+    # ---- Step 2: Create a strict intersecting index
+    # Drop rows where any asset has missing data to get a clean, aligned matrix
+    df_all_daily = pd.DataFrame(daily_series)
+    clean_historical_df = df_all_daily.dropna()
+    common_index = clean_historical_df.index
 
     if verbose:
-        days = (common_end - common_start).days
-        print(f"  Common window: {common_start.date()} → {common_end.date()} "
-              f"({days} calendar days, ~{days/365:.1f} years)")
+        print(f"  Clean validation window: {common_index[0].date()} → {common_index[-1].date()}")
+        print(f"  Total aligned trading days: {len(common_index)}")
 
-    # ---- Step 3: weighted portfolio
+    # ---- Step 3: Weighted portfolio 
     hist_portfolio = {}
     for h in households:
         port = pd.Series(0.0, index=common_index)
@@ -274,12 +307,41 @@ def _build_hist_portfolio(
                 w = asset_weights[h][asset_class][ticker]
                 if w == 0.0:
                     continue
-                s = daily_series[ticker].reindex(common_index, fill_value=0.0)
-                port += w * s
+                
+                port += w * clean_historical_df[ticker]
+                
         hist_portfolio[h] = port
-        if verbose:
-            ann = port.mean() * trading_days_per_year
-            print(f"  [{h}] annualised hist portfolio return: {ann:.2%}")
+    # ---- Step 2: common window (only assets with ≥10 years history)
+    # cutoff = pd.Timestamp("2010-01-01")
+    # long_series = {t: s for t, s in daily_series.items() if s.index[0] <= cutoff}
+    # if not long_series:
+    #     long_series = daily_series  # fallback: use all
+
+    # common_start = max(s.index[0] for s in long_series.values())
+    # common_end   = min(s.index[-1] for s in long_series.values())
+    # ref_ticker   = max(long_series, key=lambda t: len(long_series[t]))
+    # common_index = long_series[ref_ticker].loc[common_start:common_end].index
+
+    # if verbose:
+    #     days = (common_end - common_start).days
+    #     print(f"  Common window: {common_start.date()} → {common_end.date()} "
+    #           f"({days} calendar days, ~{days/365:.1f} years)")
+
+    # # ---- Step 3: weighted portfolio
+    # hist_portfolio = {}
+    # for h in households:
+    #     port = pd.Series(0.0, index=common_index)
+    #     for asset_class in assets_completed:
+    #         for ticker in assets_completed[asset_class]:
+    #             w = asset_weights[h][asset_class][ticker]
+    #             if w == 0.0:
+    #                 continue
+    #             s = daily_series[ticker].reindex(common_index, fill_value=0.0)
+    #             port += w * s
+    #     hist_portfolio[h] = port
+    #     if verbose:
+    #         ann = port.mean() * trading_days_per_year
+    #         print(f"  [{h}] annualised hist portfolio return: {ann:.2%}")
 
     return hist_portfolio, common_index
 
@@ -296,11 +358,30 @@ def _rolling_one_year(series_values: np.ndarray, window=252) -> np.ndarray:
 
 def _make_table_pretty(df, name, folder, fontsize=13):
     """Render a DataFrame as a styled matplotlib table and save it."""
+    def smartRound(y, maxDec=4):
+        x = y
+        if pd.isnull(x):
+          return ""
+        if x == 0:
+          return 0
+        if isinstance(x, (int, np.integer)):
+          return x
+        return round(x, maxDec)
+
+
+    dfRound = df.copy()
+    for col in dfRound.select_dtypes(include=[np.number]):
+
+
+        # numCol = dfRound.select_dtypes(include=['float', 'int']).columns
+        # dfRound[col] = dfRound[col].apply(smartRound)
+        dfRound[col] = dfRound[col].map(smartRound)
+    dfRound = dfRound.astype(object)
     fig_width = max(10, 2.5 * len(df.columns))
     fig_height = 1.0 + 0.55 * len(df)
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
     ax.axis("off")
-    tbl = ax.table(cellText=df.values, colLabels=df.columns,
+    tbl = ax.table(cellText=dfRound.values, colLabels=df.columns,
                    cellLoc="center", loc="center")
     tbl.auto_set_font_size(False)
     tbl.set_fontsize(fontsize)
@@ -590,358 +671,6 @@ def multiBandBacktest(chunk_folder: str, coeffs_dict: dict,
     }
 
 
-# --------------------------------------------------------------------------
-#     Variable version (multiple bands)
-# --------------------------------------------------------------------------
-
-def run_multi_band_analysis(
-    chunk_folder: str,
-    coeffs_dict: dict,
-    assets_completed: dict,
-    asset_weights: dict,
-    households: list,
-    time_hist: list,
-    V_num: str,
-    convergence_checkpoints: list = None,
-    trading_days_per_year: int = 252,
-    backtest_pass_threshold: float = 0.85,
-    sim_low_pct: float = 5.0,
-    sim_high_pct: float = 95.0,
-    save_folder: str = None,
-    verbose: bool = True,
-) -> dict:
-
-
-    if convergence_checkpoints is None:
-        convergence_checkpoints = [100, 500, 1000, 2000, 3000, 5000]
-    checkpoints = sorted(set(convergence_checkpoints))
-
-    # ------------------------------------------------------------------
-    # PREP: build historical portfolio return series (needed for backtest)
-    # ------------------------------------------------------------------
-    if verbose:
-        print("=== Building historical portfolio returns ===")
-    hist_portfolio, _ = _build_hist_portfolio(
-        coeffs_dict, assets_completed, asset_weights, households, time_hist,
-        trading_days_per_year=trading_days_per_year, verbose=verbose
-    )
-
-    # Rolling 1-year windows from history (computed once, stored as arrays)
-    hist_one_year = {
-        h: _rolling_one_year(hist_portfolio[h].values, trading_days_per_year)
-        for h in households
-    }
-    if verbose:
-        for h in households:
-            print(f"  [{h}] {len(hist_one_year[h])} historical rolling windows. "
-                  f"Mean: {np.nanmean(hist_one_year[h]):.2%}")
-
-    # ------------------------------------------------------------------
-    # STREAMING PASS
-    # ------------------------------------------------------------------
-    chunk_files = _sorted_chunk_files(chunk_folder, V_num)
-    if not chunk_files:
-        raise FileNotFoundError(f"No Chunk_Results_*.pkl files found in {chunk_folder}")
-    if verbose:
-        print(f"\n=== Streaming {len(chunk_files)} chunk files ===")
-
-    # --- Welford online mean for convergence ---
-    # mean_cum_final[h] = running mean of the FINAL value of each path's
-    # cumulative return series (a scalar per path).
-    # This is cheaper than tracking the full time-series mean at every step.
-    # If you want the full mean path at each checkpoint, set TRACK_FULL_PATH = True below.
-    TRACK_FULL_PATH = True   # set False to save RAM if paths are very long
-
-    welford_n    = 0                                  # total paths seen so far
-    welford_mean = {h: None for h in households}      # running mean arrays
-    # For backtest: accumulate 1-year sim endpoints
-    sim_one_year = {h: [] for h in households}
-
-    # Storage for convergence snapshots
-    convergence_records = []
-    checkpoints_done    = set()
-
-    for fname in chunk_files:
-        fpath = os.path.join(chunk_folder, fname)
-        try:
-          
-            try: 
-                with zstd.open(fpath, "rb") as f:
-                  saved = pickle.load(f)
-            except zstd.ZstdError:
-               with open(fpath, "rb") as f:
-                saved = pickle.load(f)
-       
-            for path in saved["chunkResults"]["monteCarlo"]["allHouseholdCum"]:
-              for h in households:
-                  arr = np.asarray(path[h])
-
-                  if not np.all(np.isfinite(arr)):
-                      print("BAD:", fname, h)
-
-
-        except Exception as e:
-            print(f"  WARNING: could not load {fname}: {e}")
-            continue
-        mc = saved["chunkResults"]["monteCarlo"]
-        ret_paths = mc["allHouseholdRet"]   # list of {household: np.array}
-        cum_paths = mc["allHouseholdCum"]   # list of {household: np.array}
-
-        n_in_chunk = len(ret_paths)
-        if verbose:
-            print(f"  {fname}: {n_in_chunk} paths (total so far will be "
-                  f"{welford_n + n_in_chunk})")
-
-        for i in range(n_in_chunk):
-            welford_n += 1
-            ret_path = ret_paths[i]
-            cum_path = cum_paths[i]
-
-            for h in households:
-                cum_arr = cum_path[h]   # shape (T,)
-
-                # ---- Welford update ----
-                if welford_mean[h] is None:
-                    if TRACK_FULL_PATH:
-                        welford_mean[h] = np.zeros_like(cum_arr, dtype=np.float64)
-                    else:
-                        welford_mean[h] = 0.0
-
-                if TRACK_FULL_PATH:
-                    delta = cum_arr - welford_mean[h]
-                    welford_mean[h] += delta / welford_n
-                else:
-                    welford_mean[h] += (cum_arr[-1] - welford_mean[h]) / welford_n
-
-                # ---- Backtest: 1-year endpoint from this path ----
-                ret_arr = ret_path[h]
-                if len(ret_arr) >= trading_days_per_year:
-                    one_yr = np.prod(1 + ret_arr[:trading_days_per_year]) - 1
-                else:
-                    one_yr = np.prod(1 + ret_arr) - 1
-                sim_one_year[h].append(one_yr)
-
-            # ---- Convergence checkpoint ----
-            # Record whenever we hit (or first pass) a checkpoint
-            for cp in checkpoints:
-                if cp not in checkpoints_done and welford_n >= cp:
-                    record = {"Paths": welford_n}
-                    for h in households:
-                        if TRACK_FULL_PATH and welford_mean[h] is not None:
-                            record[f"{h} Mean Final CumR"] = welford_mean[h][-1]
-                        elif welford_mean[h] is not None:
-                            record[f"{h} Mean Final CumR"] = welford_mean[h]
-                        else:
-                            record[f"{h} Mean Final CumR"] = np.nan
-                    convergence_records.append(record)
-                    checkpoints_done.add(cp)
-                    if verbose:
-                        vals = ", ".join(
-                            f"{h}: {record[f'{h} Mean Final CumR']:.2%}"
-                            for h in households
-                        )
-                        print(f"    Checkpoint {cp} paths: {vals}")
-
-        del saved, mc, ret_paths, cum_paths
-        import gc; gc.collect()
-
-    # Record the final total as a last checkpoint (even if not in the list)
-    final_record = {"Paths": welford_n}
-    for h in households:
-        if TRACK_FULL_PATH and welford_mean[h] is not None:
-            final_record[f"{h} Mean Final CumR"] = welford_mean[h][-1]
-        elif welford_mean[h] is not None:
-            final_record[f"{h} Mean Final CumR"] = welford_mean[h]
-        else:
-            final_record[f"{h} Mean Final CumR"] = np.nan
-    if welford_n not in checkpoints_done:
-        convergence_records.append(final_record)
-
-    if verbose:
-        print(f"\n  Total paths streamed: {welford_n}")
-
-    # ------------------------------------------------------------------
-    # CONVERGENCE TABLE + PLOT
-    # ------------------------------------------------------------------
-    convergence_df = pd.DataFrame(convergence_records)
-
-    fig, ax = plt.subplots(figsize=(12, 5))
-    colours = {"80-100": "tab:red", "40-59": "tab:green", "0-20": "tab:blue"}
-    for h in households:
-        col = f"{h} Mean Final CumR"
-        if col in convergence_df.columns:
-            ax.plot(
-                convergence_df["Paths"],
-                convergence_df[col] * 100,
-                marker="o", markersize=5,
-                label=f"{h} percentile",
-                color=colours.get(h, "grey")
-            )
-    ax.set_xlabel("Number of Monte Carlo Paths")
-    ax.set_ylabel("Mean Final Cumulative Return (%)")
-    ax.set_title("Monte Carlo Convergence — Mean Terminal Cumulative Return",
-                 fontweight="bold")
-    ax.yaxis.set_major_formatter(mtick.PercentFormatter(100.0))
-    ax.legend(title="HH Income Group")
-    ax.grid(True, linestyle="--", alpha=0.5)
-    plt.tight_layout()
-    if save_folder:
-        plt.savefig(os.path.join(save_folder, f"convergence_plot{welford_n}.png"), dpi=200)
-        if verbose:
-            print(f"  Saved convergence_plot.png to {save_folder}")
-    plt.show()
-
-    # ------------------------------------------------------------------
-    # BACKTEST PASS/FAIL
-    # ------------------------------------------------------------------
-    backtest_df = pd.DataFrame(index=[households])
-
-
-
-
-    def back_Test_Analysis(hist_one_year, sim_vals, backtest_df, band_df):
-      if verbose:
-          print("\n=== Backtest pass/fail ===")
-      back_raw = {}
-      back_test_rows = []
-      for h in households:
-        # backtest_df[h]= {}
-        household_row = {'Household': h}
-        back_raw[h] = {}
-
-        for band_name in band_df.columns:
-          sim_low_pct = band_df.iloc['Low', band_name]
-          sim_high_pct = band_df.iloc['High', band_name]
-
-          # backtest_raw  = {}
-          hist_vals = hist_one_year[h]
-          sim_vals  = np.array(sim_one_year[h])
-
-          sim_lo = np.percentile(sim_vals, sim_low_pct)
-          sim_hi = np.percentile(sim_vals, sim_high_pct)
-
-          inside    = (hist_vals >= sim_lo) & (hist_vals <= sim_hi)
-          pct_in    = inside.mean()
-          passed    = pct_in >= backtest_pass_threshold
-
-          status = "PASS" if passed else "FAIL"
-          household_row[f"% in {band_name}"] = pct_in
-          back_raw[h][band_name] = {
-              "sim_lo": sim_lo,
-              "sim_hi": sim_hi,
-              "pct_within": pct_in,
-              "pass": passed
-          }
-          if verbose:
-            print(f"  [{h}] {pct_in:.1%} within sim [{sim_low_pct:.0f}th, "
-                  f"{sim_high_pct:.0f}th] band  →  {status}  "
-                  f"(threshold {backtest_pass_threshold:.0%})")
-        back_test_rows.append(household_row)
-      backtest_df = pd.DataFrame(back_test_rows).set_index("Household")
-
-          # backtest_df[h][band_name] = pct_in
-
-      # if backtest_df == None:
-      #   backtest_rows = []
-      #   backtest_raw  = {}
-
-      #   backtest_rows.append({
-      #         "Household":     h,
-      #         f"% Within {band_name}": {pct_in:.1%},
-      #         "Pass?":         status,
-      #     })
-
-      #   backtest_rows.append({
-      #         "Household":     h,
-      #         f"% Within": f"[]",
-      #         "Pass?":         status,
-      #     })
-
-
-        # backtest_raw[h] = {
-        #       "hist_one_year": hist_vals,
-        #       "sim_one_year":  sim_vals,
-        #       "sim_lo":        sim_lo,
-        #       "sim_hi":        sim_hi,
-        #       "pct_within":    pct_in,
-        #       "pass":          passed,
-        #   }
-
-
-
-
-
-
-
-      # backtest_df = (
-      #     pd.DataFrame(backtest_rows)
-      #     .sort_values("Household")
-      #     .reset_index(drop=True)
-      # )
-      backtest_df.set_index(households)
-    def back_test_plot(backtest_raw):
-      # ---- Backtest distribution plot ----
-      fig, axes = plt.subplots(1, len(households),
-                              figsize=(6 * len(households), 5), sharey=False)
-      if len(households) == 1:
-          axes = [axes]
-
-      try:
-          import seaborn as sns
-          has_sns = True
-      except ImportError:
-          has_sns = False
-
-      for ax, h in zip(axes, households):
-          c = colours.get(h, "grey")
-          raw = backtest_raw[h]
-          hist_v = raw["hist_one_year"]
-          sim_v  = raw["sim_one_year"]
-
-          if has_sns:
-              sns.kdeplot(sim_v,  ax=ax, color=c, alpha=0.35, fill=True,
-                          label="Simulated")
-              sns.kdeplot(hist_v, ax=ax, color=c, linestyle="--", linewidth=2,
-                          label="Historical")
-          else:
-              ax.hist(sim_v,  bins=60, color=c, alpha=0.3, density=True,
-                      label="Simulated")
-              ax.hist(hist_v, bins=30, color=c, alpha=0.7, density=True,
-                      histtype="step", linewidth=2, label="Historical")
-
-          ax.axvline(raw["sim_lo"], color=c, linestyle=":", linewidth=1.2)
-          ax.axvline(raw["sim_hi"], color=c, linestyle=":", linewidth=1.2,
-                    label=f"Sim {sim_low_pct:.0f}–{sim_high_pct:.0f}th pct")
-
-          status = "PASS" if raw["pass"] else "FAIL"
-          ax.set_title(f"Household {h}\n"
-                      f"{raw['pct_within']:.1%} within band → {status}",
-                      fontsize=12)
-          ax.set_xlabel("1-Year Return")
-          ax.xaxis.set_major_formatter(mtick.PercentFormatter(1.0))
-          ax.legend(fontsize=9)
-          ax.grid(True, alpha=0.3)
-
-      fig.suptitle(
-          "Backtest: Historical vs Simulated 1-Year Portfolio Returns",
-          fontsize=14, fontweight="bold"
-      )
-      plt.tight_layout()
-      if save_folder:
-          plt.savefig(os.path.join(save_folder, f"backtest_distributions{welford_n}.png"),
-                      dpi=200)
-          if verbose:
-              print(f"  Saved backtest_distributions.png to {save_folder}")
-      plt.show()
-
-      # ---- Backtest table render ----
-      _render_backtest_table(backtest_df, save_folder, verbose)
-
-      return {
-          "convergence_df": convergence_df,
-          "backtest_df":    backtest_df,
-          "backtest_raw":   backtest_raw,
-      }
 
 def _crps_single(forecast_samples: np.ndarray, actual: float) -> float:
     """
@@ -964,7 +693,7 @@ def _crps_single(forecast_samples: np.ndarray, actual: float) -> float:
 def crpsAnalysis(chunk_folder: str, coeffs_dict: dict,
                  assets_completed: dict, asset_weights: dict,
                  households: list, time_hist: list,
-                 V_num: str, n_hist_sample: int = 300,
+                 V_num: str, n_hist_sample: int = 2000,
                  verbose: bool = True) -> dict:
     """
     Compute the mean CRPS for each household's simulated 1-year return
@@ -1031,14 +760,14 @@ def crpsAnalysis(chunk_folder: str, coeffs_dict: dict,
     crps_per_window = {}   # for the distribution plot
 
     # np.random.seed(42)   # reproducible sampling
-
+    rng2 = np.random.default_rng(42)
     for h in households:
         sim_arr  = np.array(sim_one_year[h])
         hist_arr = hist_one_year[h]
 
         # Sample historical windows (or use all if fewer than n_hist_sample)
         if len(hist_arr) > n_hist_sample:
-            sampled_idx  = np.random.choice(len(hist_arr), n_hist_sample,
+            sampled_idx  = rng2.choice(len(hist_arr), n_hist_sample,
                                             replace=False)
             sampled_hist = hist_arr[sampled_idx]
         else:
@@ -1573,7 +1302,7 @@ def CRPS_bar_chart(crps_scores, crps_per_window, folder):
 
 def houseCumSampleWithSigmaBanded(assetRes, time, households, makeTable=False):
     sample_path_length = assetRes['portSampleCum'][households[0]][0].shape[0]
-    x = pd.to_datetime(time[2:])[:sample_path_length] # Slices x to exactly 913 (or whatever path size is)
+    x = pd.to_datetime(time)[:sample_path_length] # Slices x to exactly 913 (or whatever path size is)
 
     
     sampleSummaryRows = []
@@ -1634,15 +1363,16 @@ def getHouseholdVolTable(aggRes, households):
        p5_lists[h].append(np.nanpercentile(path, 5))
        p95_lists[h].append(np.nanpercentile(path, 95))
        sigma_list[h].append(path)
-       ic(
-        h,
-        type(sigma_list[h]),
-        len(sigma_list[h])
-       )
-       if len(sigma_list[h]) > 0:
-        ic(
-            np.shape(sigma_list[h][0])
-        )
+       if globals().get("sigma_list_debug", False):
+          ic(
+            h,
+            type(sigma_list[h]),
+            len(sigma_list[h])
+          )
+          if len(sigma_list[h]) > 0:
+            ic(
+                np.shape(sigma_list[h][0])
+            )
     single_sigma_path = aggRes['portSigma'][h]
     houseVolatilityRows.append({
             "Household": h,
@@ -1652,7 +1382,7 @@ def getHouseholdVolTable(aggRes, households):
             "Std of Path Mean Volatilities": np.nanstd(meanLists[h]),
         })
     meanPath[h] = np.nanmean(sigma_list[h], axis=0)
-    pathStd[h] = np.nanstd(sigma_list[h])
+    pathStd[h] = np.nanstd(sigma_list[h], axis=0) #np.nanstd(sigma_list[h])
   houseVolTable = pd.DataFrame(houseVolatilityRows)
   #sort
   houseVolTable = houseVolTable.sort_values(by=["Household"]).reset_index(drop=True)
@@ -1842,44 +1572,63 @@ def meanHousePath(aggRes, households):
 #             presentingAssetReturns[h][broadCategory] = assetClassSeries
 #   return presentingAssetReturns
 
-def get_presentingAssetReturns(asset_level_res, households, assets):
+def get_presentingAssetReturns(asset_level_res, households, assets, time):
     """
     Extracts and aggregates the historical mean cumulative return paths 
     for each broad asset class expected by the downstream metric analysis.
     """
+    #asset_level_res = aggRes, not actually asset_level
     presentingAssetReturns = {}
     mean_asset_paths = asset_level_res.get('meanAssetPath', {})
+    portAssetRet = asset_level_res.get('portAssetRet', {})
 
     for h in households:
+        fallback_len = len(time)
+        for ac_dict in portAssetRet[h].values():
+            if isinstance(ac_dict, dict) and ac_dict:
+                fallback_len = len(next(iter(ac_dict.values())))
+                break
         presentingAssetReturns[h] = {}
-
+        if h not in portAssetRet:
+           continue
         for assetClass in assets:
-            if assetClass in mean_asset_paths:
-                data = mean_asset_paths[assetClass]
+            class_daily_ret = None
+            if assetClass in portAssetRet[h]:
+               for ticker, weighted_ret_array in portAssetRet[h][assetClass].items():
+                    if class_daily_ret is None:
+                        class_daily_ret = np.zeros_like(weighted_ret_array)
+                    class_daily_ret += weighted_ret_array
+            if class_daily_ret is not None:
+                # Convert the summed daily weighted returns into a cumulative return path
+                class_cum_ret = np.cumprod(1 + class_daily_ret) - 1.0
+                presentingAssetReturns[h][assetClass] = class_cum_ret
+                # data = mean_asset_paths[assetClass]
                 
-                if isinstance(data, dict):
-                    # If it's a nested dictionary of individual tickers, sum their arrays up
-                    assetClassSeries = None
-                    for tickerName, path_array in data.items():
-                        if assetClassSeries is None:
-                            assetClassSeries = np.zeros_like(path_array)
-                        assetClassSeries += path_array
-                    presentingAssetReturns[h][assetClass] = assetClassSeries
-                else:
-                    # If it's already a pre-aggregated flat NumPy array
-                    presentingAssetReturns[h][assetClass] = data
+                # if isinstance(data, dict):
+                #     # If it's a nested dictionary of individual tickers, sum their arrays up
+                #     assetClassSeries = None
+                #     for tickerName, path_array in data.items():
+                #         if assetClassSeries is None:
+                #             assetClassSeries = np.zeros_like(path_array)
+                #         assetClassSeries += path_array
+                #     presentingAssetReturns[h][assetClass] = assetClassSeries
+                # else:
+                #     # If it's already a pre-aggregated flat NumPy array
+                #     presentingAssetReturns[h][assetClass] = data
             else:
                 # Fallback to a zero array if the asset class wasn't simulated/found
                 # Dynamically find length from another asset to avoid hardcoding or NameErrors
-                fallback_len = 9130  
-                for any_asset in mean_asset_paths.values():
-                    if isinstance(any_asset, dict) and any_asset:
-                        fallback_len = len(next(iter(any_asset.values())))
-                        break
-                    elif isinstance(any_asset, np.ndarray):
-                        fallback_len = len(any_asset)
-                        break
-                presentingAssetReturns[h][assetClass] = np.zeros(fallback_len)
+                print(f"notice_me!!!!!!!!!!!!!!!!!!!!!/n presenting asset returns is falling back to zeros.")
+                fallback_len = len(time)
+                # for any_asset in mean_asset_paths.values():
+                #     if isinstance(any_asset, dict) and any_asset:
+                #         fallback_len = len(next(iter(any_asset.values())))
+                #         break
+                #     elif isinstance(any_asset, np.ndarray):
+                #         fallback_len = len(any_asset)
+                #         break
+                # presentingAssetReturns[h][assetClass] = np.zeros(fallback_len)
+                
 
     return presentingAssetReturns
 
@@ -2077,7 +1826,7 @@ def get_metric_analysis(
                                                   backtest_pass_threshold=backtest_pass_threshold, sim_low_pct=sim_low_pct, 
                                                   sim_high_pct=sim_high_pct, verbose=debugMetrics)
 
-  presentingAssetReturns = get_presentingAssetReturns(asset_level_res, households, assets_completed)
+  presentingAssetReturns = get_presentingAssetReturns(aggRes, households, assets_completed, time_hist)
   gap_geometric_results = get_gap_geometric(presentingAssetReturns)
   return {
     "validation": {
@@ -2229,7 +1978,7 @@ def makeTablePretty(df, name, folder, fontsize=16, col_width=4, row_height=1, he
   for col in dfRound.select_dtypes(include=[np.number]):
 
 
-  # numCol = dfRound.select_dtypes(include=['float', 'int']).columns
+    # numCol = dfRound.select_dtypes(include=['float', 'int']).columns
     dfRound[col] = dfRound[col].apply(smartRound)
   df = dfRound
   fig_width = col_width * len(df.columns)
@@ -2285,8 +2034,11 @@ def house_cum_sigma_banded_plot(assetRes, time, graphFigSize, houseHoldAssetsCol
     plt.figure(figsize=graphFigSize)
 
   timeLocal = time.copy()
-  if len(timeLocal) > 9130:
-     timeLocal = timeLocal[(len(timeLocal)-9130):]
+  # if len(timeLocal) > 9130:
+    #  timeLocal = timeLocal[(len(timeLocal)-9130):]
+  sim_length = len(assetRes['portCumR'][households[0]])
+  if len(timeLocal) > sim_length:
+      timeLocal = timeLocal[-sim_length:]
   if sampleSummary != None:
     # sampleSummary = pd.DataFrame(sampleSummaryRows)
     makeTablePretty(sampleSummary, 'Sample Path Summary', folder)
@@ -2319,8 +2071,11 @@ def house_cum_sigma_banded_plot(assetRes, time, graphFigSize, houseHoldAssetsCol
 def householdVolatilityPlot(graphFigSize, houseHoldAssetsColours, assetRes, time, folder):
   
   timeLocal = time.copy()
-  if len(timeLocal) > 9130:
-     timeLocal = timeLocal[(len(timeLocal)-9130):]
+  # if len(timeLocal) > 9130:
+  #    timeLocal = timeLocal[(len(timeLocal)-9130):]
+  sim_length = len(assetRes['portCumR'][households[0]])
+  if len(timeLocal) > sim_length:
+      timeLocal = timeLocal[-sim_length:]
   x = pd.to_datetime(timeLocal)
   # x = time
   plt.figure(figsize=graphFigSize)
@@ -2383,8 +2138,13 @@ def plotMeanPath(meanPath, households, time, householdDisplayLabels, graphFigSiz
   plt.figure(figsize= graphFigSize)
   
   timeLocal = time.copy()
-  if len(timeLocal) > 9130:
-     timeLocal = timeLocal[(len(timeLocal)-9130):]
+  # if len(timeLocal) > 9130:
+  #    timeLocal = timeLocal[(len(timeLocal)-9130):]
+  sim_length = len(meanPath)
+  if len(timeLocal) > sim_length:
+      print(f"NOTICE_ME! Time local is {timeLocal}, sim length {sim_length}")
+      timeLocal = timeLocal[-sim_length:]
+  # if not isinstance(timeLocal, pd.datetime)
   x = pd.to_datetime(timeLocal)
 
   for h in households:
@@ -2999,7 +2759,7 @@ def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results,
 
   
 
-  x = pd.to_datetime(time[2:])
+  x = pd.to_datetime(time)
   plottingList = {}
   currentPath = []
   currentHousehold = []
@@ -3194,7 +2954,7 @@ def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results,
 
 import numpy as np
 import arch
-print(arch.__version__)
+print("arch.__version__:", arch.__version__)
 
 
 import datetime as dt
@@ -3293,9 +3053,56 @@ debugVolatility2 = False
 debugVol3 = False
 debug = False
 optRun = False
-debugLocal = True # shorter run
+debugLocal = False # shorter run
+debugCorrelation = False # correlation in runPort and apply correlation 
+sigma_list_debug = False
+useLogs = True
+useCholesky = False
+useBlending = True
+
 from matplotlib.ticker import PercentFormatter
 from scipy.optimize import minimize
+# assetsYahoo = {
+#           "Equities": {
+#             '^GSPC',
+#             '^FTSE',
+#             '^STOXX',
+#             '^IETP',
+#             'IWDA.L',
+#                 },
+#           "Bonds Short": {
+#               # 'IB01.L',
+#               'SHY',
+#               'IGLS.L',
+#               'SYB3.SW',
+#               'IAGG',
+#                 },
+#           "Bonds Long": {
+#               'IEF',
+#               'IGLT.L',
+#               'SYBB.DE',
+#               'EUN3.DE',
+#               }
+#               }
+# for ac in assetsYahoo:
+#   for ticker in assetsYahoo[ac]:
+#     ticker_obj = yf.Ticker(ticker)
+#     hist = ticker_obj.history(period="max")
+
+#     print(
+#         ticker,
+#         hist.index.min(),
+#         hist.index.max(),
+#         len(hist)
+#     )
+      # data = yf.download(ticker, progress=False)
+
+      # print(
+      #     ticker,
+      #     data.index.min(),
+      #     data.index.max(),
+      #     len(data)
+      # )
 def setup():
   
 #   from google.colab import drive
@@ -3457,7 +3264,7 @@ def setup():
   listD10 = df.iloc[3, 1:].tolist()
   if debug6 == True:
     print("Data from row with index 0, from column index 2 onwards:")
-  print(listD10)
+    print(listD10)
   if debug6 == True:
     print(listD10)
 
@@ -3465,7 +3272,7 @@ def setup():
   listD2 = df.iloc[4, 1:].tolist()
 
 
-  print(listD2)
+  # print(listD2)
 
 
 
@@ -3473,7 +3280,7 @@ def setup():
   listD6 = df.iloc[5, 1:].tolist()
 
 
-  print(listD6)
+  # print(listD6)
   if debug6 == True:
     print(listD2)
     print("Second household")
@@ -3486,14 +3293,14 @@ def setup():
 
 
 
-  start = dt.datetime(2000, 1, 1)
-  end = dt.datetime(2025, 1, 1)
-  time = []
-  for i in range((end - start).days):
-    time.append(start + dt.timedelta(days=i))
-  extraTime = []
-  for i in range((end - (start - dt.timedelta(days=1))).days):
-    extraTime.append((start - dt.timedelta(days=1)) + dt.timedelta(days=i))
+  # start = dt.datetime(2000, 1, 1)
+  # end = dt.datetime(2025, 1, 1)
+  # time = []
+  # for i in range((end - start).days):
+  #   time.append(start + dt.timedelta(days=i))
+  # extraTime = []
+  # for i in range((end - (start - dt.timedelta(days=1))).days):
+  #   extraTime.append((start - dt.timedelta(days=1)) + dt.timedelta(days=i))
 
   res = fullSavedAssetRes['sampleAssetPaths']['Business Wealth']['Business Wealth S.E'][1]
 
@@ -3560,7 +3367,7 @@ def setup():
             '^FTSE': listD10[1],
             '^STOXX': listD10[2],
             '^IETP': listD10[3],
-            'IWDA.L': listD10[4],
+            '^990100-USD-STRD': listD10[4],
                 },
           "Bonds Short": {
               # 'IB01.L': listD10[5],
@@ -3600,7 +3407,7 @@ def setup():
             '^FTSE': listD2[1],
             '^STOXX': listD2[2],
             '^IETP': listD2[3],
-            'IWDA.L': listD2[4],
+            '^990100-USD-STRD': listD2[4],
                 },
           "Bonds Short": {
               # 'IB01.L': listD2[5],
@@ -3640,7 +3447,7 @@ def setup():
             '^FTSE': listD6[1],
             '^STOXX': listD6[2],
             '^IETP': listD6[3],
-            'IWDA.L': listD6[4],
+            '^990100-USD-STRD': listD6[4],
                 },
           "Bonds Short": {
               # 'IB01.L': listD6[5],
@@ -3848,6 +3655,9 @@ def setup():
   inputParameters = {
       "Overall": {
           "daysPerYear": 365,
+          "useCholesky": False,
+          "df_t": 5
+
       },
       "Busniess Equity": {
           "busEpsScalar": 1.1,
@@ -3855,10 +3665,13 @@ def setup():
 
           "smallBlend": 0.4,
           "largeBlend": 0.6,
+
+          "smallCapTicker": "IEUS",
+          "largeCapTicker": '^125904-USD-STRD'
       },
       "Chunks": {
-          "totalPaths": 5000,
-          "chunkSize": 1,
+          "totalPaths": 300,
+          "chunkSize": 50,
       },
       "Correlation Modifier": {
         "Global Scalar": 1.0,
@@ -3871,26 +3684,59 @@ def setup():
         "Mode": "Global"
       },
       "percentile_bands": {
-      '50% Band': {
-          'high': 75,
-          'low': 25
-      },
-      '80% Band': {
-          'high': 90,
-          'low': 10
-      },
-      '90% Band': {
-          'high': 95,
-          'low': 5,
-      },
-      '98% Band': {
-          'high': 99,
-          'low': 1,
-      }
+        '50% Band': {
+            'high': 75,
+            'low': 25
+        },
+        '80% Band': {
+            'high': 90,
+            'low': 10
+        },
+        '90% Band': {
+            'high': 95,
+            'low': 5,
+        },
+        '98% Band': {
+            'high': 99,
+            'low': 1,
+        }
 
-  }
-      
-
+      },
+      "asset_universe": {
+        "Equities": {
+            '^GSPC',
+            '^FTSE',
+            '^STOXX',
+            '^IETP',
+            'IWDA.L',
+                },
+        "Bonds Short": {
+            'SHY',
+            # 'IB01.L',
+            'IGLS.L',
+            'SYB3.SW',
+            'IAGG',
+              },
+        "Bonds Long": {
+            'IEF',
+            'IGLT.L',
+            'SYBB.DE',
+            'EUN3.DE',
+            },
+        "Property":{
+            'Land HMR',
+            'Land Other',
+        },
+        "Deposits":{
+            'Overnight_Ire',
+            'ReedemableAtNotice',
+            'Agreed Maturity < 2',
+            'Agreed Maturity > 2'
+        },
+        "Business Wealth":{
+            "Business Wealth S.E"
+        }
+          },
   }
 
   scenarios = [
@@ -3920,7 +3766,18 @@ def setup():
       "muScalar": 1.00,
       "volScalar": 1.10
    },
-  
+   {
+      "type": "correlation",
+      "name": "globalHigher5",
+      "Global Scalar": 1.05,
+      "Mode": "Global"
+    },
+    {
+      "type": "correlation",
+      "name": "globalLower5",
+      "Global Scalar": 0.95,
+      "Mode": "Global",
+    },
     {
       "type": "correlation",
       "name": "globalHigher10",
@@ -3944,50 +3801,129 @@ def setup():
       "name": "globalLower20",
       "Global Scalar":0.80,
       "Mode": "Global"
+    },
+    {
+       "type": "df_t",
+       "name": "df3",
+       "df_t": 3,
+
+    },
+    {
+       "type": "df_t",
+       "name": "df8",
+       "df_t": 8,
+
+    },
+    {
+       "type": "df_t",
+       "name": "df15",
+       "df_t": 15,
+
+    },
+    {
+       "type": "df_t",
+       "name": "df30",
+       "df_t": 30,
+
+    },
+    {
+       "type": "df_t",
+       "name": "df1000",
+       "df_t": 1000,
+
+    },
+    {
+    "type": "business_wealth",
+    "name": "SmallCapHeavy",
+    "smallBlend": 0.75,
+    "largeBlend": 0.25
+    },
+
+    {
+      "type": "business_wealth",
+      "name": "LargeCapHeavy",
+      "smallBlend": 0.25,
+      "largeBlend": 0.75
+    },
+    {
+    "type": "business_wealth",
+    "name": "alphaBus3%",
+    "alphaBusRaw": 0.03
+    },
+
+    {
+    "type": "business_wealth",
+    "name": "alphaBus4%",
+    "alphaBusRaw": 0.04
+    },
+    
+
+    {
+      "type": "business_wealth",
+      "name": "BusEps1.2",
+      "busEpsScalar": 1.2
+    },
+
+    {
+      "type": "business_wealth",
+      "name": "BusEps1",
+      "busEpsScalar": 1
+    },
+    {
+      "type": "business_wealth",
+      "name": "BusEps0.8",
+      "busEpsScalar": 0.8
+    },
+
+    {
+      "type": "business_wealth",
+      "name": "BusEps1.4",
+      "busEpsScalar": 1.4
     }
+    
   ]
 
 
   assets = {
-          "Equities": {
-            '^GSPC',
-            '^FTSE',
-            '^STOXX',
-            '^IETP',
-            'IWDA.L',
-                },
-          "Bonds Short": {
-              'SHY',
-              # 'IB01.L',
-              'IGLS.L',
-              'SYB3.SW',
-              'Ire Short',
-              'IAGG',
-                },
-          "Bonds Long": {
-              'IEF',
-              'IGLT.L',
-              'SYBB.DE',
-              'Ire Long',
-              'EUN3.DE',
+        "Equities": {
+          '^GSPC',
+          '^FTSE',
+          '^STOXX',
+          '^IETP',
+          '^990100-USD-STRD', # MSCI WORLD # was IWDA.L but not enough time
               },
-          "Property":{
-              'Land Overall',
-              'Land HMR',
-              'Land',
-              'Land Other',
-              'Land UK',
-          },
-          "Deposits":{
-              'Overnight_Ire',
-              'ReedemableAtNotice',
-              'Agreed Maturity < 2',
-              'Agreed Maturity > 2'
-          },
-          "Business Wealth":{
-              "Business Wealth S.E"
-          }
-  }
+        "Bonds Short": {
+            'SHY',
+            # 'IB01.L',
+            'IGLS.L',
+            'SYB3.SW',
+            'Ire Short',
+            'IAGG',
+              },
+        "Bonds Long": {
+            'IEF',
+            'IGLT.L',
+            'SYBB.DE',
+            'Ire Long',
+            'EUN3.DE',
+            },
+        "Property":{
+            'Land Overall',
+            'Land HMR',
+            'Land',
+            'Land Other',
+            'Land UK',
+        },
+        "Deposits":{
+            'Overnight_Ire',
+            'ReedemableAtNotice',
+            'Agreed Maturity < 2',
+            'Agreed Maturity > 2'
+        },
+        "Business Wealth":{
+            "Business Wealth S.E"
+        }
+}
 
 
   assetsYahoo = {
@@ -3996,7 +3932,7 @@ def setup():
             '^FTSE',
             '^STOXX',
             '^IETP',
-            'IWDA.L',
+            '^990100-USD-STRD', # MSCI WORLD # was IWDA.L but not enough time
                 },
           "Bonds Short": {
               # 'IB01.L',
@@ -4018,7 +3954,7 @@ def setup():
             '^FTSE',
             '^STOXX',
             '^IETP',
-            'IWDA.L',
+            '^990100-USD-STRD', # MSCI WORLD # was IWDA.L but not enough time
                 },
           "Bonds Short": {
               'SHY',
@@ -4047,6 +3983,10 @@ def setup():
               "Business Wealth S.E"
           }
           }
+
+
+
+
   corrAbleClasses = ["Equities", "Bonds Short", "Bonds Long", 'Business Wealth']
   # return {
   #   "assetWeights": assetWeights,
@@ -4350,7 +4290,7 @@ def aggregate_to_asset_paths(nTotalPaths, V_num):
       # -------------------------------------------------
 
       sigmaAssetPath = {}
-
+      divisor = pathCounter - 1 if pathCounter > 1 else 1
       for c in meanAssetPath:
 
           sigmaAssetPath[c] = {}
@@ -4358,7 +4298,7 @@ def aggregate_to_asset_paths(nTotalPaths, V_num):
           for t in meanAssetPath[c]:
 
               sigmaAssetPath[c][t] = np.sqrt(
-                  M2AssetPath[c][t] / (pathCounter - 1)
+                  M2AssetPath[c][t] / (divisor)
               )
 
       sigmaAssetClassPath = {}
@@ -4366,7 +4306,7 @@ def aggregate_to_asset_paths(nTotalPaths, V_num):
       for c in meanAssetClassPath:
 
           sigmaAssetClassPath[c] = np.sqrt(
-              M2AssetClassPath[c] / (pathCounter - 1)
+              M2AssetClassPath[c] / divisor
           )
 
       result = {
@@ -4428,7 +4368,7 @@ def aggregate_to_asset_paths(nTotalPaths, V_num):
             print(f"Failed to load {fname}: {e}")
 
   inputs = partial_results[0]['chunkResults']['inputs']
-  time = pd.to_datetime(inputs['time'][2:])
+  time = pd.to_datetime(inputs['time'])
   xAxisDates = pd.to_datetime(time)
   assetWeights = inputs['assetWeights']
   assetStatePath = data_dir / f"assetState_{V_num}.pkl" #f"/content/drive/MyDrive/Young_Economist/assetState_{V_num}.pkl"
@@ -4443,13 +4383,14 @@ def aggregate_to_asset_paths(nTotalPaths, V_num):
       resultPath = resultPath,
       debug=False
   )
-  for c in assetResults["meanAssetPath"]:
-      for t in assetResults["meanAssetPath"][c]:
-          print(
-              c,
-              t,
-              np.nanmean(assetResults["meanAssetPath"][c][t])
-          )
+  if debugAggregation:
+      for c in assetResults["meanAssetPath"]:
+          for t in assetResults["meanAssetPath"][c]:
+              print(
+                  c,
+                  t,
+                  np.nanmean(assetResults["meanAssetPath"][c][t])
+              )
   return assetResults
 
 
@@ -4485,7 +4426,8 @@ def portfolioAggregation(assetWeights, fullSavedAssetRes, households, assetsComp
   for h in households:
     weightTotal[h] = 0
     for assetClass in assetsCompleted:
-      print(f"assetClass = {assetClass}")
+      if debugAggregation:
+        print(f"assetClass = {assetClass}")
       portAssetRet[h][assetClass] = {}
       portAssetCumR[h][assetClass] = {}
       for asset in assetsCompleted[assetClass]:
@@ -4493,7 +4435,8 @@ def portfolioAggregation(assetWeights, fullSavedAssetRes, households, assetsComp
         portAssetCumR[h][assetClass][asset] = np.zeros_like(returnExample)
     for assetClass in fullSavedAssetRes['meanAssetPath']:
       for asset in fullSavedAssetRes['meanAssetPath'][assetClass]:
-        print(f"asset {asset}")
+        if debugAggregation:
+          print(f"asset {asset}")
 
 
 
@@ -4524,26 +4467,36 @@ def portfolioAggregation(assetWeights, fullSavedAssetRes, households, assetsComp
         portAssetRet[h][assetClass][asset] = portAssetRetNew
         # portAssetCumR[h][assetClass][asset] = portAssetCumNew
         portRet[h] += portAssetRetNew
-        portSigmaSquare[h] += (portAssetWeight ** 2) * (sigma ** 2)
+        # portSigmaSquare[h] += (portAssetWeight ** 2) * (sigma ** 2)
         # portCumR[h] += portAssetCumNew
-        print(f"{h} {np.nanmean(portRet[h])}")
+        if debugAggregation:
+          print(f"{h} {np.nanmean(portRet[h])}")
       # print(household)
     portCumR[h] = np.cumprod(1 + portRet[h]) - 1
-    portSigma[h] = np.sqrt(portSigmaSquare[h])
-    print(f"Cum R {h} {portCumR[h][-1]}")
+    # portSigma[h] = np.sqrt(portSigmaSquare[h])
+    if debugAggregation:
+      print(f"Cum R {h} {portCumR[h][-1]}")
     for returnSeries in portSamplePaths[h]:
       portSampleCum[h].append(np.cumprod(1 + returnSeries) - 1)
     # for var_path in portSampleSigmaSquare[h]:
     #         portSampleSigma[h].append(np.sqrt(var_path))
     #
-    portSampleSigma = {h: [] for h in households}
+    
     vol_window = 21  # 21 trading days (~1 month) rolling window
     
     for h in households:
         for returnSeries in portSamplePaths[h]:
             # Compute rolling standard deviation path, handling the initial window gap smoothly
-            rolling_vol = pd.Series(returnSeries).rolling(window=vol_window, min_periods=1).std().values
+            rolling_vol = pd.Series(returnSeries).rolling(window=vol_window, min_periods=1).std().to_numpy(copy=True)
+            rolling_vol[:vol_window] = rolling_vol[vol_window]
+            # Backfill the first 20 days of NaN values with the first valid volatility
+            # valid_idx = pd.Series(rolling_vol).first_valid_index()
+            # if valid_idx is not None:
+            #     rolling_vol[:valid_idx] = rolling_vol[valid_idx]
+            # else:
+            #     rolling_vol = np.zeros_like(rolling_vol)
             portSampleSigma[h].append(rolling_vol)
+        portSigma[h] = np.nanmean(portSampleSigma[h], axis=0)
   summaryRows = []
 
 
@@ -4563,7 +4516,8 @@ def portfolioAggregation(assetWeights, fullSavedAssetRes, households, assetsComp
       "portRet": portRet,
       "portSampleCum": portSampleCum,
       "portSampleSigma": portSampleSigma,
-      "summaryTable": summaryTable
+      "summaryTable": summaryTable,
+      "portAssetRet": portAssetRet
 
   }
   return aggRes
@@ -4598,7 +4552,49 @@ def getOgAssetClassWeights(assetWeights):
 
 
 
+@njit
+def _garch_loop(z, mu, omega, alpha1, beta1, beta2, first_sigma, first_eps):
 
+    # JIT-compiled GARCH(1,2) simulation loop.
+    # Returns r, sigma, p arrays each of length len(z)-2.
+
+    n = len(z)
+    # pre-allocate output arrays
+    r_out     = np.empty(n)
+    sigma_out = np.empty(n)
+    eps_out   = np.empty(n)
+    # p_out     = np.empty(n - 2)
+
+    sigma_out[0] = first_sigma
+    sigma_out[1] = first_sigma
+    eps_out[0]   = first_eps
+    eps_out[1]   = first_eps
+    r_out[0]     = mu + first_eps
+    r_out[1]     = mu + first_eps
+    # p_prev       = 1.0  # placeholder
+
+    for t in range(2, n):
+        new_sigma = (omega
+                    + alpha1 * eps_out[t-1]**2
+                    + beta1  * sigma_out[t-1]**2
+                    + beta2  * sigma_out[t-2]**2) ** 0.5
+        if new_sigma > 0.10: # caps volatility to prevent alpha + beta being > 1
+            new_sigma = 0.10
+        sigma_out[t] = new_sigma
+        new_eps      = new_sigma * z[t]
+        eps_out[t]   = new_eps
+        new_r        = mu + new_eps
+        r_out[t]   = new_r
+        
+    # maxDaily = 3
+    # maxAllowed = maxDaily # 1000,000
+    # object_searched = r_out
+    # maxFound = get_absolute_max(object_searched)
+    # location = find_value_location(object_searched, maxFound)
+    # assert maxFound < maxAllowed, (
+    # f"Error: returns have exploded. Max found {maxFound}, {h}, {location} in _garch_loop"
+    # )
+    return r_out, sigma_out, eps_out
   
 
 
@@ -4729,7 +4725,7 @@ def getGraphs(assetRes):
   graphFigSize = (14,6)
   alpha = 0.2
   def houseCumSampleWithSigmaBanded():
-    x = pd.to_datetime(time[2:])
+    x = pd.to_datetime(time)
     plt.figure(figsize=graphFigSize)
     for h in households:
       upper = (assetRes['portCumR'][h] + assetRes['portSigma'][h])*100
@@ -4915,12 +4911,11 @@ from scipy.stats import t as studentT
 # warnings.simplefilter("ignore", FutureWarning)
 # import numpy as np
 
-
 # import os
 # os.environ["TQDM_DISABLE"] = "1"
 debug2 = False
 debug3 = False
-debug4 = False # z
+debug4 = True # z
 debug5 = False #minimal
 debug6 = False #start up
 debug7 = False
@@ -4931,7 +4926,8 @@ debug11 = False
 debug12 = False
 debugBus = False
 debug14 = False
-debugVolatility3 = True
+debugVolatility3 = False
+debugAggregation = False
 import pickle
 alreadyRun = 12
 daysPerYear = 365
@@ -5100,14 +5096,15 @@ dataAgreedLong = dfDepositPrices.iloc[0:, 4].astype(float)
 
 start = dt.datetime(2000, 1, 1)
 end = dt.datetime(2025, 1, 1)
-time = []
-for i in range((end - start).days):
-  time.append(start + dt.timedelta(days=i))
+# time = []
+# for i in range((end - start).days):
+  # time.append(start + dt.timedelta(days=i))
 extraTime = []
 for i in range((end - (start - dt.timedelta(days=1))).days):
   extraTime.append((start - dt.timedelta(days=1)) + dt.timedelta(days=i))
 
-
+time_dt = pd.bdate_range(start=start, end=end) # Business (252/yr)
+time = time_dt.to_pydatetime().tolist()
 
 
 debug = False
@@ -5169,128 +5166,128 @@ households = ["80-100", "40-59", "0-20"]
 # assetClass = ["Equities", "Bonds Short", "Bonds Long", "Property", "Deposits"]
 
 
-assetWeights = {
-    "80-100": {
-        "Equities": {
-          '^GSPC': listD10[0],
-          '^FTSE': listD10[1],
-          '^STOXX': listD10[2],
-          '^IETP': listD10[3],
-          'IWDA.L': listD10[4],
-              },
-        "Bonds Short": {
-            # 'IB01.L': listD10[5],
-            'SHY': listD10[5],
-            'IGLS.L': listD10[6],
-            'SYB3.SW': listD10[7],
-            'Ire Short': listD10[8],
-            'IAGG': listD10[9],
-              },
-        "Bonds Long": {
-            'IEF': listD10[10],
-            'IGLT.L': listD10[11],
-            'SYBB.DE': listD10[12],
-            'Ire Long': listD10[13],
-            'EUN3.DE': listD10[14],
-            },
-        "Property":{
-            'Land Overall': listD10[15],
-            'Land HMR': listD10[16],
-            'Land': listD10[17],
-            'Land Other': listD10[18],
-            'Land UK': listD10[19],
-        },
-        "Deposits":{
-            'Overnight_Ire': listD10[20],
-            'ReedemableAtNotice': listD10[21],
-            'Agreed Maturity < 2': listD10[22],
-            'Agreed Maturity > 2': listD10[23],
-            },
-        "Business Wealth":{
-            "Business Wealth S.E": listD10[24],
-        }
-        },
-    "0-20": {
-        "Equities": {
-          '^GSPC': listD2[0],
-          '^FTSE': listD2[1],
-          '^STOXX': listD2[2],
-          '^IETP': listD2[3],
-          'IWDA.L': listD2[4],
-              },
-        "Bonds Short": {
-            # 'IB01.L': listD2[5],
-            'SHY': listD2[5],
-            'IGLS.L': listD2[6],
-            'SYB3.SW': listD2[7],
-            'Ire Short': listD2[8],
-            'IAGG': listD2[9],
-              },
-        "Bonds Long": {
-            'IEF': listD2[10],
-            'IGLT.L': listD2[11],
-            'SYBB.DE': listD2[12],
-            'Ire Long': listD2[13],
-            'EUN3.DE': listD2[14],
-            },
-        "Property":{
-            'Land Overall': listD2[15],
-            'Land HMR': listD2[16],
-            'Land': listD2[17],
-            'Land Other': listD2[18],
-            'Land UK': listD2[19],
-        },
-        "Deposits":{
-            'Overnight_Ire': listD2[20],
-            'ReedemableAtNotice': listD2[21],
-            'Agreed Maturity < 2': listD2[22],
-            'Agreed Maturity > 2': listD2[23],
-        },
-        "Business Wealth":{
-            "Business Wealth S.E": listD2[24],
-        }
-        },
-    "40-59": {
-        "Equities": {
-          '^GSPC': listD6[0],
-          '^FTSE': listD6[1],
-          '^STOXX': listD6[2],
-          '^IETP': listD6[3],
-          'IWDA.L': listD6[4],
-              },
-        "Bonds Short": {
-            # 'IB01.L': listD6[5],
-            'SHY': listD6[5],
-            'IGLS.L': listD6[6],
-            'SYB3.SW': listD6[7],
-            'Ire Short': listD6[8],
-            'IAGG': listD6[9],
-              },
-        "Bonds Long": {
-            'IEF': listD6[10],
-            'IGLT.L': listD6[11],
-            'SYBB.DE': listD6[12],
-            'Ire Long': listD6[13],
-            'EUN3.DE': listD6[14],
-            },
-        "Property":{
-            'Land Overall': listD6[15],
-            'Land HMR': listD6[16],
-            'Land': listD6[17],
-            'Land Other': listD6[18],
-            'Land UK': listD6[19],
-        },
-        "Deposits":{
-            'Overnight_Ire': listD6[20],
-            'ReedemableAtNotice': listD6[21],
-            'Agreed Maturity < 2': listD6[22],
-            'Agreed Maturity > 2': listD6[23],
-        },
-        "Business Wealth":{
-            "Business Wealth S.E": listD6[24],
-        }
-        }
-    # "Template": {
+# assetWeights = {
+#     "80-100": {
+#         "Equities": {
+#           '^GSPC': listD10[0],
+#           '^FTSE': listD10[1],
+#           '^STOXX': listD10[2],
+#           '^IETP': listD10[3],
+#           'IWDA.L': listD10[4],
+#               },
+#         "Bonds Short": {
+#             # 'IB01.L': listD10[5],
+#             'SHY': listD10[5],
+#             'IGLS.L': listD10[6],
+#             'SYB3.SW': listD10[7],
+#             'Ire Short': listD10[8],
+#             'IAGG': listD10[9],
+#               },
+#         "Bonds Long": {
+#             'IEF': listD10[10],
+#             'IGLT.L': listD10[11],
+#             'SYBB.DE': listD10[12],
+#             'Ire Long': listD10[13],
+#             'EUN3.DE': listD10[14],
+#             },
+#         "Property":{
+#             'Land Overall': listD10[15],
+#             'Land HMR': listD10[16],
+#             'Land': listD10[17],
+#             'Land Other': listD10[18],
+#             'Land UK': listD10[19],
+#         },
+#         "Deposits":{
+#             'Overnight_Ire': listD10[20],
+#             'ReedemableAtNotice': listD10[21],
+#             'Agreed Maturity < 2': listD10[22],
+#             'Agreed Maturity > 2': listD10[23],
+#             },
+#         "Business Wealth":{
+#             "Business Wealth S.E": listD10[24],
+#         }
+#         },
+#     "0-20": {
+#         "Equities": {
+#           '^GSPC': listD2[0],
+#           '^FTSE': listD2[1],
+#           '^STOXX': listD2[2],
+#           '^IETP': listD2[3],
+#           'IWDA.L': listD2[4],
+#               },
+#         "Bonds Short": {
+#             # 'IB01.L': listD2[5],
+#             'SHY': listD2[5],
+#             'IGLS.L': listD2[6],
+#             'SYB3.SW': listD2[7],
+#             'Ire Short': listD2[8],
+#             'IAGG': listD2[9],
+#               },
+#         "Bonds Long": {
+#             'IEF': listD2[10],
+#             'IGLT.L': listD2[11],
+#             'SYBB.DE': listD2[12],
+#             'Ire Long': listD2[13],
+#             'EUN3.DE': listD2[14],
+#             },
+#         "Property":{
+#             'Land Overall': listD2[15],
+#             'Land HMR': listD2[16],
+#             'Land': listD2[17],
+#             'Land Other': listD2[18],
+#             'Land UK': listD2[19],
+#         },
+#         "Deposits":{
+#             'Overnight_Ire': listD2[20],
+#             'ReedemableAtNotice': listD2[21],
+#             'Agreed Maturity < 2': listD2[22],
+#             'Agreed Maturity > 2': listD2[23],
+#         },
+#         "Business Wealth":{
+#             "Business Wealth S.E": listD2[24],
+#         }
+#         },
+#     "40-59": {
+#         "Equities": {
+#           '^GSPC': listD6[0],
+#           '^FTSE': listD6[1],
+#           '^STOXX': listD6[2],
+#           '^IETP': listD6[3],
+#           'IWDA.L': listD6[4],
+#               },
+#         "Bonds Short": {
+#             # 'IB01.L': listD6[5],
+#             'SHY': listD6[5],
+#             'IGLS.L': listD6[6],
+#             'SYB3.SW': listD6[7],
+#             'Ire Short': listD6[8],
+#             'IAGG': listD6[9],
+#               },
+#         "Bonds Long": {
+#             'IEF': listD6[10],
+#             'IGLT.L': listD6[11],
+#             'SYBB.DE': listD6[12],
+#             'Ire Long': listD6[13],
+#             'EUN3.DE': listD6[14],
+#             },
+#         "Property":{
+#             'Land Overall': listD6[15],
+#             'Land HMR': listD6[16],
+#             'Land': listD6[17],
+#             'Land Other': listD6[18],
+#             'Land UK': listD6[19],
+#         },
+#         "Deposits":{
+#             'Overnight_Ire': listD6[20],
+#             'ReedemableAtNotice': listD6[21],
+#             'Agreed Maturity < 2': listD6[22],
+#             'Agreed Maturity > 2': listD6[23],
+#         },
+#         "Business Wealth":{
+#             "Business Wealth S.E": listD6[24],
+#         }
+#         }
+#     # "Template": {
     #     "Equities": {
     #       '^GSPC':
     #       '^FTSE':
@@ -5323,112 +5320,10 @@ assetWeights = {
     #         'Agreed Maturity UK':
     #     }
     #     }
-    }
-
-
-assets = {
-        "Equities": {
-          '^GSPC',
-          '^FTSE',
-          '^STOXX',
-          '^IETP',
-          'IWDA.L',
-              },
-        "Bonds Short": {
-            'SHY',
-            # 'IB01.L',
-            'IGLS.L',
-            'SYB3.SW',
-            'Ire Short',
-            'IAGG',
-              },
-        "Bonds Long": {
-            'IEF',
-            'IGLT.L',
-            'SYBB.DE',
-            'Ire Long',
-            'EUN3.DE',
-            },
-        "Property":{
-            'Land Overall',
-            'Land HMR',
-            'Land',
-            'Land Other',
-            'Land UK',
-        },
-        "Deposits":{
-            'Overnight_Ire',
-            'ReedemableAtNotice',
-            'Agreed Maturity < 2',
-            'Agreed Maturity > 2'
-        },
-        "Business Wealth":{
-            "Business Wealth S.E"
-        }
-}
-
-
-assetsYahoo = {
-        "Equities": {
-          '^GSPC',
-          '^FTSE',
-          '^STOXX',
-          '^IETP',
-          'IWDA.L',
-              },
-        "Bonds Short": {
-            # 'IB01.L',
-            'SHY',
-            'IGLS.L',
-            'SYB3.SW',
-            'IAGG',
-              },
-        "Bonds Long": {
-            'IEF',
-            'IGLT.L',
-            'SYBB.DE',
-            'EUN3.DE',
-             }
-            }
-assetsCompleted = {
-            "Equities": {
-          '^GSPC',
-          '^FTSE',
-          '^STOXX',
-          '^IETP',
-          'IWDA.L',
-              },
-        "Bonds Short": {
-            'SHY',
-            # 'IB01.L',
-            'IGLS.L',
-            'SYB3.SW',
-            'IAGG',
-              },
-        "Bonds Long": {
-            'IEF',
-            'IGLT.L',
-            'SYBB.DE',
-            'EUN3.DE',
-            },
-        "Property":{
-            'Land HMR',
-            'Land Other',
-        },
-        "Deposits":{
-            'Overnight_Ire',
-            'ReedemableAtNotice',
-            'Agreed Maturity < 2',
-            'Agreed Maturity > 2'
-        },
-        "Business Wealth":{
-            "Business Wealth S.E"
-        }
-        }
+    # }
 
 
 
-corrAbleClasses = ["Equities", "Bonds Short", "Bonds Long", 'Business Wealth']
 
 def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, time, corrAbleClasses, returnsDict, inputParameters):
 
@@ -5535,7 +5430,7 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
       #   print("mu in getMu is", mu)
       return mu
 
-
+  uncorrZ = np.random.normal(0, 1, size=(len(assetsCompleted), (len(time))))
 
 
 
@@ -5549,10 +5444,10 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
     annualRet = data / 100
     dailyRetSimple = annualRet / 12
     # dailyRetSimple is already a simple daily return, no need for log
-    dailyRetSeries = np.repeat(dailyRetSimple, (len(time)-2+len(dailyRetSimple))/len(dailyRetSimple))
-    dailyRetSeries = dailyRetSeries[:len(time)-2]
-    if debug4 == True:
-      print(f"Deposit daily ret = {dailyRetSimple}, and series len is {len(dailyRetSeries)}")
+    # dailyRetSeries = np.repeat(dailyRetSimple, (len(time)-2+len(dailyRetSimple))/len(dailyRetSimple))
+    # dailyRetSeries = dailyRetSeries[:len(time)-2]
+    # if debug4 == True:
+      # print(f"Deposit daily ret = {dailyRetSimple}, and series len is {len(dailyRetSeries)}")
     return(dailyRetSimple)
 
   monthLength = 30
@@ -5567,14 +5462,21 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
              raise RuntimeError(
               f"Data was empty for {ticker}, {assetClass} in getCoeffs"
              )
-          returns = data['Close'].squeeze().pct_change().dropna()
+          if useLogs:
+             returns = np.log(data['Close'].squeeze() / data['Close'].squeeze().shift(1)).dropna()
+          else:
+             returns = data['Close'].squeeze().pct_change().dropna()
           firstP = data['Close'].iloc[0]
           secondP = data['Close'].iloc[1] # Changed to get actual second price for starting the loop
 
 
           data = yf.download(ticker, start=start, end=end, progress=False) #getting data
           # Calculated as simple returns
-          returns = data['Close'].squeeze().pct_change().dropna()
+
+          if useLogs:
+             returns = np.log(data['Close'].squeeze() / data['Close'].squeeze().shift(1)).dropna()
+          else:
+             returns = data['Close'].squeeze().pct_change().dropna()
           if debugBus == True:
             print(f"proper, working {ticker} returns.shape {returns.shape}  mean {np.nanmean(returns)} returns[:50] {returns[:50]}")
 
@@ -5592,20 +5494,25 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
             if ticker == 'Business Wealth S.E':
               largeCapData = yf.download('^125904-USD-STRD', start=start, end=end, progress=False)
               smallCapData = yf.download('IEUS', start=start, end=end, progress=False)
-              largeCap = largeCapData['Close'].squeeze().pct_change().dropna().squeeze()
+              
               if debugBus == True:
                 print(f"WOOOO BEFORE CHANGING ===================== largeCap.shape {largeCap.shape} mean {np.nanmean(largeCap)} type {type(largeCap)} largeCap[:50] {largeCap[:50]}")
+              # if useLogs:
+              #     smallCap = np.log(smallCapData['Close'].squeeze() / smallCapData['Close'].squeeze().shift(1)).dropna().squeeze()
+              #     largeCap = np.log(largeCapData['Close'].squeeze() / largeCapData['Close'].squeeze().shift(1)).dropna().squeeze()
+                  
+              # else:
               smallCap = smallCapData['Close'].squeeze().pct_change().dropna().squeeze()
+              largeCap = largeCapData['Close'].squeeze().pct_change().dropna().squeeze()
               largeCap, smallCap = largeCap.align(smallCap, join='inner')
               if debugBus == True:
                 print(f"len(largeCap) {len(largeCap)}")
               smallCap = smallCap[:len(largeCap)]
-              firstPLarge = largeCapData['Close'].squeeze().iloc[0]
-              secondPLarge = largeCapData['Close'].squeeze().iloc[1]
-
-
-              firstPsmall = smallCapData['Close'].squeeze().iloc[0]
-              secondPsmall = smallCapData['Close'].squeeze().iloc[1]
+              
+            #  returns = np.log(data['Close'].squeeze() / data['Close'].squeeze().shift(1)).dropna()
+            #   else:
+                
+           
               if debugBus == True:
                 print(f"largeCap.shape {largeCap.shape} mean {np.nanmean(largeCap)} type {type(largeCap)} largeCap[:50] {largeCap[:50]}")
                 print(f"smallCap.shape {smallCap.shape} mean {np.nanmean(smallCap)} smallCap[:50] {smallCap[:50]}")
@@ -5613,10 +5520,19 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
               secondPLarge = float(largeCapData['Close'].squeeze().iloc[1])
               firstPsmall = float(smallCapData['Close'].squeeze().iloc[0])
               secondPsmall = float(smallCapData['Close'].squeeze().iloc[1])
-              returns = (largeCap * largeBlend + smallCap * smallBlend)
-              firstP = firstPLarge * largeBlend + firstPsmall * smallBlend
-              secondP = secondPLarge * largeBlend + secondPsmall * smallBlend
 
+              returns_simple = (largeCap * largeBlend + smallCap * smallBlend)
+              # firstP = firstPLarge * largeBlend + firstPsmall * smallBlend
+              # secondP = secondPLarge * largeBlend + secondPsmall * smallBlend
+
+              if useLogs:
+                returns = np.log1p(returns_simple)
+              else:
+                returns = returns_simple
+              
+              firstP = 100
+              secondP = 100 * (1.0 + returns_simple)
+                
               # am = arch_model(returns * 100, mean='Constant', vol='Garch', p=1, q=1, dist='gaussian')
               # resGARCH = am.fit(disp='off', show_warning=False, options={"maxiter": 150})
 
@@ -5632,10 +5548,19 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
               # Calculated as simple returns
               # returns2 = (dataHMR / dataHMR.shift(1) - 1)
               debugNew2 = True
-
-              returns2 = dataHMR.pct_change().dropna()
-              coeffsDict[assetClass][ticker]['histRetMonthly'] = returns2
+              if useLogs:
+                 returns2 = np.log(dataHMR / dataHMR.shift(1)).dropna()
+              else:
+                 returns2 = dataHMR.pct_change().dropna()
               histRetMonthly = returns2
+              mu_monthly = np.nanmean(returns2)
+              sigma_monthly = np.nanstd(returns2) # Array std dev
+              coeffsDict[assetClass][ticker] = {
+                 "mu_daily": mu_monthly / 21.0,
+                 "sigma_daily": sigma_monthly / np.sqrt(21.0),
+                 "histRetMonthly": returns2,
+                 "firstP": 100.0
+              }
               if debug12 == True:
                 print(f"returns mean {np.nanmean(returns2)}")
               if debug8 == True or debugVolatility2:
@@ -5654,26 +5579,95 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
               # Calculated as simple returns
               # returns2 = (dataLand / dataLand.shift(1) - 1)
               returns2 = dataLand.pct_change().dropna()
+              returns2 = np.log1p(returns2)
               histRetMonthly = returns2
-              coeffsDict[assetClass][ticker]['histRetMonthly'] = returns2
+              mu_monthly = np.nanmean(returns2)
+              sigma_monthly = np.nanstd(returns2)
+              coeffsDict[assetClass][ticker] = {
+                 "mu_daily": mu_monthly / 21,
+                 "sigma_daily": sigma_monthly / np.sqrt(21.0), # BM scale to daily
+                 "histRetMonthly": returns2,
+                 "firstP": 100
+
+              }
+              
+           
               if debug8 == True or debugVolatility2:
                 print(f"Returns 2 for {ticker} is {returns2}")
               # firstP and secondP are just placeholders, actual price series not used for GARCH directly
               firstP = 100.0
               secondP = 100.0
+            continue
           elif assetClass == 'Deposits':
             if ticker == 'Overnight_Ire':
               returns2 = depositCleaning(dataOvernight)
+              returns2 = np.log1p(returns2)
               coeffsDict[assetClass][ticker]['histRetMonthly'] = returns2
               histRetMonthly = returns2
+              mu_monthly = np.nanmean(returns2)
+              sigma_monthly = np.nanstd(returns2)
+              coeffsDict[assetClass][ticker] = {
+                 "mu_daily": mu_monthly / 21,
+                 "sigma_daily": sigma_monthly / np.sqrt(21.0), # BM scale to daily
+                 "histRetMonthly": returns2,
+                 "firstP": 100
+
+              }
             elif ticker == 'ReedemableAtNotice':
               returns2 = depositCleaning(dataReedemable)
+              returns2 = np.log1p(returns2)
+              histRetMonthly = returns2
+              mu_monthly = np.nanmean(returns2)
+              sigma_monthly = np.nanstd(returns2)
+              coeffsDict[assetClass][ticker] = {
+                 "mu_daily": mu_monthly / 21,
+                 "sigma_daily": sigma_monthly / np.sqrt(21.0), # BM scale to daily
+                 "histRetMonthly": returns2,
+                 "firstP": 100
+
+              }
             elif ticker == 'Agreed Maturity < 2':
               returns2 = depositCleaning(dataAgreedShort)
+              returns2 = np.log1p(returns2)
+              histRetMonthly = returns2
+              mu_monthly = np.nanmean(returns2)
+              sigma_monthly = np.nanstd(returns2)
+              coeffsDict[assetClass][ticker] = {
+                 "mu_daily": mu_monthly / 21,
+                 "sigma_daily": sigma_monthly / np.sqrt(21.0), # BM scale to daily
+                 "histRetMonthly": returns2,
+                 "firstP": 100
+
+              }
             elif ticker == 'Agreed Maturity > 2':
               returns2 = depositCleaning(dataAgreedLong)
-          if returns2 is not None:
-            coeffsDict[assetClass][ticker]['histRetMonthly'] = returns2
+              returns2 = np.log1p(returns2)
+              histRetMonthly = returns2
+              mu_monthly = np.nanmean(returns2)
+              sigma_monthly = np.nanstd(returns2)
+              coeffsDict[assetClass][ticker] = {
+                 "mu_daily": mu_monthly / 21,
+                 "sigma_daily": sigma_monthly / np.sqrt(21.0), # BM scale to daily
+                 "histRetMonthly": returns2,
+                 "firstP": 100
+
+              }
+            continue
+          # if returns2 is not None:
+          #   # coeffsDict[assetClass][ticker] = returns2
+          #   returns2 = np.log1p(returns2)
+          #   histRetMonthly = returns2
+            
+          #   mu_monthly = np.nanmean(returns2)
+          #   sigma_monthly = np.nanstd(mu_monthly)
+          #   coeffsDict[assetClass][ticker] = {
+          #       "mu_daily": mu_monthly / 21,
+          #       "sigma_daily": sigma_monthly / np.sqrt(21.0), # BM scale to daily
+          #       "histRetMonthly": returns2,
+          #       "firstP": 100
+
+          #   }
+          # returns2 = np.log1p(returns2)
           histRetMonthly = returns2
           if debugVolatility3:
             print(f"{ticker} {assetClass}: {histRetMonthly}")
@@ -5778,15 +5772,7 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
 
 
         if assetClass == 'Deposits':
-          coeffsDict[assetClass][ticker] = {
-              'mu': returns2,
-              'fitSigma': np.zeros(len(time)-adjustment),
-              'firstP': 1.0,
-              'secondP': 1.0,
-              'histRetMonthly': histRetMonthly
-          }
-          if debug5 == True:
-            print(f"Saved coeffsDict for {assetClass} {ticker}, mu = {coeffsDict['Deposits'][ticker]['mu']}")
+          
           continue
         elif assetClass == 'Business Wealth':
           donothing = 1
@@ -5871,841 +5857,11 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
         print("Keys of coeffsDict[assetClass][ticker]", coeffsDict[assetClass][ticker].keys())
         print(f"Asset class: {assetClass}, ticker: {ticker}")
       # print(coeffsDict)
-  return coeffsDict, returnsDict
-
-def runAssetSimul(ticker, z, coeffsDict, assetWeights, assets, time, busEpsScalar=1.1, alphaBus=None):
-  def _makeSmall(series, name):
-      limit = 300
-      # Convert single-column DataFrame to Series for consistent integer-based indexing
-      # if isinstance(series, pd.DataFrame) and series.shape[1] == 1:
-      #     series = series.iloc[:, 0]
-      print(f"Mean {name}: {np.nanmean(series)}, std {np.nanstd(series)}")
-      D1 = series[:int(len(series) / 10)]
-      D10 = series[int((len(series) / 10) * 9):]
-      # D1 = series[(len(series) - 10]
-      print(f"First 10 items in {name}: {series[:10]}")
-      print(f"Mean of first 10% of {name}: {np.nanmean(D1)}, std {np.nanstd(D1)}")
-      print(f"Mean of last 10% of {name}: {np.nanmean(D10)}, std {np.nanstd(D10)}")
-      newSeries = [] # Initialize newSeries outside the if block
-      if len(series) > limit:
-        for i in range(len(series)):
-          if debug6 == True:
-            if i % 100 == 0:
-              print(f"i is {i}, series{i} is {series[i]} ")
-              print(f"(len(series) / limit) {(len(series) / limit)}")
-          if i % int(len(series) / limit) == 0:
-            newSeries.append(series[i])
-            if debug6 == True:
-              print(f"series being appended, len is {len(newSeries)}")
-      print(f"len of new {name} {len(newSeries)}")
-      return newSeries
-  from numba import njit
-  @njit
-  def _garch_loop(z, mu, omega, alpha1, beta1, beta2, first_sigma, first_eps):
-
-      # JIT-compiled GARCH(1,2) simulation loop.
-      # Returns r, sigma, p arrays each of length len(z)-2.
-
-      n = len(z)
-      # pre-allocate output arrays
-      r_out     = np.empty(n - 2)
-      sigma_out = np.empty(n)
-      eps_out   = np.empty(n)
-      # p_out     = np.empty(n - 2)
-
-      sigma_out[0] = first_sigma
-      sigma_out[1] = first_sigma
-      eps_out[0]   = first_eps
-      eps_out[1]   = first_eps
-      # p_prev       = 1.0  # placeholder
-
-      for t in range(2, n):
-          new_sigma = (omega
-                      + alpha1 * eps_out[t-1]**2
-                      + beta1  * sigma_out[t-1]**2
-                      + beta2  * sigma_out[t-2]**2) ** 0.5
-          sigma_out[t] = new_sigma
-          new_eps      = new_sigma * z[t]
-          eps_out[t]   = new_eps
-          new_r        = mu + new_eps
-          r_out[t-2]   = new_r
-      # maxDaily = 3
-      # maxAllowed = maxDaily # 1000,000
-      # object_searched = r_out
-      # maxFound = get_absolute_max(object_searched)
-      # location = find_value_location(object_searched, maxFound)
-      # assert maxFound < maxAllowed, (
-      # f"Error: returns have exploded. Max found {maxFound}, {h}, {location} in _garch_loop"
-      # )
-      return r_out, sigma_out[2:], eps_out[2:]
-
-  if debugVolatility2:
-    print("RUN ASSET SIMUL START", ticker)
-    # print("PROPERTY BRANCH", ticker)
-    for name, value in {
-      "histRetMonthly": histRetMonthly,
-      "histRet": histRet,
-      "z": z,
-      "time": time, }.items():
-      try:
-          print(name, np.shape(value))
-      except:
-          pass
-  targetLen = len(time) - 2
-  # z = z[:targetLen]
-
-  for subheading, items in assets.items():
-    if ticker in items:
-      assetClass = subheading
-  if debug3 == True:
-    print(f"Ticker = {ticker}, AssetClass = {assetClass}")
-  if assetClass == 'Deposits':
-    muMonthly = coeffsDict[assetClass][ticker]['mu'] # Base (simple) hist returns
-    if isinstance(muMonthly, pd.Series):
-            muMonthly = muMonthly.values
-
-    monthsNeeded = int(np.ceil(targetLen / 30)) + 1
-    sampledMonthly = np.random.choice(muMonthly, size=monthsNeeded, replace=True)
-
-    muVol = np.nanstd(muMonthly) / np.sqrt(30)
-    if muVol <= 0.00002: # fallback if tiny mu volatility
-      muVol = 0.00002
-    z = z[:targetLen]
-    if len(muMonthly) < targetLen:
-        mu_daily = np.repeat(muMonthly, int(np.ceil(targetLen / len(muMonthly))))[:targetLen]
-    else:
-        mu_daily = mu[:targetLen]
-    # if isinstance(mu_daily, (np.ndarray, pd.Series)):
-    #     # Create daily index
-    #     daily_dates = np.arange(targetLen)
-    #     # Monthly indices (spread evenly over the daily range)
-    #     monthly_indices = np.linspace(0, targetLen-1, len(muMonthly))
-    #     # Interpolate
-    #     from scipy import interpolate
-    #     f = interpolate.interp1d(monthly_indices, mu_daily, kind='linear', fill_value='extrapolate')
-    #     mu_daily = f(daily_dates)
-
-    # else:
-        # mu_daily = float(mu_daily)
-    mu_daily = mu_daily / 30
-    r = mu_daily + muVol * z
-    if isinstance(r, pd.Series):
-            r = r.values
-    firstP = coeffsDict[assetClass][ticker]['firstP']
-    if isinstance(firstP, (pd.Series, pd.DataFrame)):
-        firstP = float(firstP.iloc[0] if hasattr(firstP, 'iloc') else firstP)
-    # For simple returns, cumulative product of (1 + r) is used for price
-    cumR = np.cumprod(1 + r) - 1 # Cumulative simple return
-    explode_test(1000000, cumR, "Deposits in runassetSimul")
-    if isinstance(firstP, pd.Series):
-      firstP = float(firstP.iloc[0])
-
-
-
-    if isinstance(firstP, pd.DataFrame):
-      firstP = float(firstP.iloc[0, 0])
-
-    p = firstP * np.cumprod(1 + r)
-    # sigma = np.zeros_like(r)
-    sigma = np.full_like(r, muVol)
-    areDeposit = False
-    return (r, cumR, p, sigma, sigma, time, areDeposit)
-# _________Getting White Noise (z)_____________________
-  # Initialize z once for the simulation path
-  # print(f"z in {ticker} len {len(z)}")
-  zMean = np.nanmean(z)
-
-
-  zStd = np.nanstd(z)
-
-
-  zVariance = np.var(z)
-
-
-
-
-  if debug == True:
-    print("Simulation is now runAssetSimul")
-    print('Mean is ', zMean)
-    print('Std is ', zStd)
-    print('Variance is ', zVariance)
-    print('len(time) is ', len(time))
-  # print('len(number) is ', len(z))
-
-
-
-
-
-
-  #__________________________day 1______________________
-  #t-1 for the first day would be an error as there is prior value. So, I'm getting the values from the last historic day
-
-
-  #getting the fitted (based on actual historic data) versions of simga and epsilon
-
-
-
-
-
-
-  # if assetClass in assetsCompleted and assetClass not in assetsYahoo:
-  if assetClass == 'Property':
-    if ticker in assetsCompleted[assetClass]:
-      fitSigma = coeffsDict[assetClass][ticker]['fitSigma']
-      sigmaScalar = coeffsDict[assetClass][ticker]['sigmaScalar']
-      if debug8 == True:
-        print(f"fit Sigma mean {np.nanmean(fitSigma)}, first 20 items {fitSigma[:20]}")
-
-
-        plt.plot(time[:len(fitSigma)], fitSigma)
-        plt.title(f"Fit Sigma for {ticker}")
-        plt.xlabel("Date")
-        plt.ylabel("Sigma")
-        plt.show()
-        _makeSmall(fitSigma, {ticker})
-      omega = coeffsDict[assetClass][ticker]['omega']
-      alpha1 = coeffsDict[assetClass][ticker]['alpha1']
-      beta1 = coeffsDict[assetClass][ticker]['beta1']
-      mu = coeffsDict[assetClass][ticker]['mu']
-
-
-      firstP = coeffsDict[assetClass][ticker]['firstP']
-      secondP = coeffsDict[assetClass][ticker]['secondP']
-      if debug14 == True:
-        print("Type:", type(coeffsDict[assetClass][ticker]))
-        print("Keys (day 1 runAssetSimul) of coeffsDict[assetClass][ticker]", coeffsDict[assetClass][ticker].keys())
-        print(f"Asset class: {assetClass}, ticker: {ticker}")
-      # print("Type of obj ", type(obj))
-      # print("Keys of obj ", obj.keys())
-      # mu = coeffsDict[assetClass][ticker]['mu']
-      # mu = getMu(ticker)
-      # mu = coeffsDict[assetClass][ticker]['mu']
-      if debug4 == True:
-        print(f"In runAssetSimul, mu = {coeffsDict[assetClass][ticker]['mu']}")
-      # print(f"shape of fitSigma: {fitSigma}, shape of z[2:len(time)] = {z[2:len(time)]}")
-        print("Time is ==== ", time)
-
-
-        print(f"{ticker} In runAssetSimul, len of z[2:len(time)] = {len(z[2:len(time)])}")
-        print(f"{ticker} In runAssetSimul, len(time) = {len(time)}")
-        print(f"{ticker} In runAssetSimul, fitSigma = {fitSigma}")
-        print(f"{ticker} In runAssetSimul, len fitSigma = {len(fitSigma)}")
-        print(f"{ticker} In runAssetSimul, z = {z}")
-        print(f"{ticker} In runAssetSimul, len(z) = {len(z)}")
-      # fitSigma2d = fitSigma[np.newaxis, :]#ensuring proper alignment this is where it is a series
-      # r = mu + fitSigma2d * z[2:len(time)]
-
-      if debugVolatility2:
-        print("PROPERTY DEBUG")
-        print("ticker", ticker)
-        print("mu shape", np.shape(mu))
-        print("sigmaScalar shape", np.shape(sigmaScalar))
-        print("z shape", np.shape(z))
-
-      def align_for_sim(mu, sigma, z):
-
-        z = np.asarray(z)
-
-        arrays = []
-
-        if not np.isscalar(mu):
-            mu = np.asarray(mu)
-            arrays.append(mu)
-
-        if not np.isscalar(sigma):
-            sigma = np.asarray(sigma)
-            arrays.append(sigma)
-
-        arrays.append(z)
-
-        n = min(len(x) for x in arrays)
-
-        if not np.isscalar(mu):
-            mu = mu[:n]
-
-        if not np.isscalar(sigma):
-            sigma = sigma[:n]
-
-        z = z[:n]
-
-        return mu, sigma, z
-
-      firstSigma = fitSigma.iloc[-1] / np.sqrt(30) if hasattr(fitSigma, 'iloc') else fitSigma[-1] / np.sqrt(30)
-      firstEps = firstSigma * np.random.normal()
-
-      mu, sigmaScalar, z = align_for_sim(mu, sigmaScalar, z)
-      targetLen = len(time) - 2
-      z = z[:targetLen+2]
-      # r = mu + sigmaScalar * z # still simple returns
-      # sigma = sigmaScalar * z
-
-      # runnning GARCH
-      r, sigma, eps = _garch_loop(
-        z.astype(np.float64),
-        float(mu / 30),
-        float(omega / 30),
-        float(alpha1 / np.sqrt(30)), #approx
-        float(beta1 / np.sqrt(30)),
-        0.0, #no beta 2
-        float(firstSigma),
-        float(firstEps)
-      )
-      if debug12 == True:
-        print(f"{ticker} HEYY IN RUNASSETSIMUL PROPERTY mean r {np.nanmean(r)}, mu {mu}, sigmaScalar {sigmaScalar}, sigma mean {np.nanmean(sigma)}, sigma std {np.nanstd(sigma)}, z mean {np.nanmean(z)}, z std {np.nanstd(z)}")
-      # r = mu + fitSigma2d * z # r will be simple returns
-
-
-      cumR = np.cumprod(1 + r) - 1 # Cumulative simple return
-      explode_test(1000000, cumR, "Property in runassetSimul")
-
-      if isinstance(firstP, pd.Series):
-        firstP = float(firstP.iloc[0])
-
-
-
-      if isinstance(firstP, pd.DataFrame):
-        firstP = float(firstP.iloc[0, 0])
-
-
-      p = firstP * np.cumprod(1 + r)
-      if debug4 == True:
-       print("fitSigma shape / type, ", type(fitSigma), getattr(fitSigma, 'shape', None))
-      # sigma = np.full(len(r), fitSigma)
-      # fitSigma = sigma
-      areDeposit = False
-      if debug2 == True:
-        # print(f"In runAssetSimul,(non yahoo), r = {r}, cumR, p, sigma, fitSigma, time, areDeposit = ", cumR, p, sigma, fitSigma, time, areDeposit)
-
-
-        print(f"In runAssetSimul, r mean = {np.nanmean(r)}, cumR, p, sigma, fitSigma, time, areDeposit = ")
-      # sigma = fitSigma
-      # sigma = sigmaScalar + np.random.normal(0, 0.0001, size=len(r))
-      if debugVolatility2:
-        print(f"Ticker {ticker}")
-        print("len(r)", len(r))
-        print("len(z)", len(z))
-        print("len(time)", len(time))
-        # print("len(portRet)", len(portRet))
-        # print("len(portSig/ma)", len(portSigma))
-      return(r, cumR, p, sigma, fitSigma, time, areDeposit)
-
-  # if not property:
-  omega = coeffsDict[assetClass][ticker]['omega']
-  alpha1 = coeffsDict[assetClass][ticker]['alpha1']
-  beta1 = coeffsDict[assetClass][ticker]['beta1']
-  beta2 = coeffsDict[assetClass][ticker]['beta2']
-  fitSigma = coeffsDict[assetClass][ticker]['fitSigma']
-  if debug4 == True:
-    print(f"FitSigma in day 1 grounding for {ticker} is ", fitSigma)
-  firstP = coeffsDict[assetClass][ticker]['firstP']
-  secondP = coeffsDict[assetClass][ticker]['secondP']
-  fitEps = coeffsDict[assetClass][ticker]['histRet'] - coeffsDict[assetClass][ticker]['mu']
-  longVar = omega / (1 - alpha1 - beta1 - beta2)
-  if debug10== True:
-    print(f"{ticker} longVar {longVar}")
-    print(f"{ticker} sum of Alpha1 {alpha1} beta1 {beta1} and beta2 {beta2} {beta2 + alpha1 + beta1}")
-  # unconditionalSigma = np.nanmean(fitSigma)
-  # firstSigma = unconditionalSigma * (1 + np.random.normal(0, 0.1))
-  # secondSigma = unconditionalSigma * (1 + np.random.normal(0, 0.1))
-
-
-  # firstSigma = fitSigma.iloc[-2].item()
-  # secondSigma = fitSigma.iloc[-1].item()
-  # firstSigma = fitSigma.iloc[-2]
-  # secondSigma = fitSigma.iloc[-1]
-  firstSigma = np.sqrt(longVar)
-
-
-  secondSigma = firstSigma
-  firstEps = firstSigma * np.random.normal()
-  # firstEps = fitEps.iloc[-1]
-  # firstEps = fitEps.iloc[-1].item()
-  if debug == True:
-    print('first sigma is', firstSigma, 'second sigma is ', secondSigma, 'firstEps is ', firstEps)
-    print("Simulation is now day 1")
-  if debug8 == True:
-    print(f"first sigma is", firstSigma, 'second sigma is ', secondSigma, 'firstEps is ', firstEps)
-    print(f"fitEps is {fitEps}, coeffsDict[assetClass][ticker][histRet] {coeffsDict[assetClass][ticker]['histRet']}, coeffsDict[assetClass][ticker][mu], {coeffsDict[assetClass][ticker]['mu']}")
-    print("Simulation is now day 1")
-
-  # defining return, sigma, epsilon and prices lists, as well as euluer
-
-  r = []
-  sigma = [firstSigma, secondSigma]
-  eps = [firstEps, firstEps] # list lenghts must match
-  if debug10== True and assetClass == 'Property':
-    print(f"Eps for {ticker} starting 2 values {eps}")
-  p = [firstP, secondP] #prices
-  e = np.exp(1) #euler
-  if debug == True:
-    print("non deposit")
-
-
-
-
-
-
-
-  # mu = (1 + muHist) ** 252 -1
-
-
-
-
-
-
-
-  # mu = getMu(ticker) # + np.random.normal(0, 0.00005)
-
-    # print("mean(fitSigma)", unconditionalSigma)
-
-
-  mu = coeffsDict[assetClass][ticker]['mu']
-  assert not isinstance(mu, dict), "Tried to add a dict instead of numeric data"
-  if debug == True:
-    print("mu daily is", mu)
-  if ticker == 'Business Wealth S.E':
-  #   for t in range(2, len(time)):
-  #     newSigma = (omega + alpha1 * eps[t-1]**2 + beta1 * sigma[t-1]**2 + beta2 * sigma[t-2]**2)**0.5
-  #     sigma.append(newSigma)
-  #     if debug9 == True and assetClass == 'Property':
-  #       print(f"{ticker} len z {len(z)}, z {z}")
-  #     newEps = newSigma * z[t]
-  #     # negative = False
-  #     # if newEps < 0:
-  #     #   negative = True
-  #     # newEps = min(int(np.abs(newEps)*100), int(100*0.05)) / 100
-  #     # if negative == True:
-  #     #   newEps = newEps * -1
-  #     eps.append(newEps)
-  #     newR = mu + newEps * busEpsScalar + alphaBus # newR represents a simple return
-
-
-
-
-  #     r.append(newR)
-  #     # The price update formula, assuming newR is a simple return
-  #     newP = p[t-1] * (1 + newR)
-  #     p.append(newP)
-  #   if debug10== True or debug11 == True or debugBus == True:
-  #     print(f"omega {omega}, alpha1 {alpha1}, beta1 {beta1}, beta2 {beta2}, eps[:50] {eps[:50]}, sigma[:50] {sigma[:50]}")
-  #   if debugBus == True:
-  #     print("Sigma mean: ", np.nanmean(sigma))
-  #     print("New Sigma", newSigma)
-  #     print("newEps", newEps)
-  #     print("Eps mean", np.nanmean(eps))
-  #     print("Simulation is now running for t")
-
-
-  #   # Calculate cumulative simple returns after the loop
-  #   cumR = np.cumprod(1 + np.array(r)) - 1
-    z = np.asarray(z[:targetLen + 2], dtype=np.float64)
-    r, sigma, eps = _garch_loop(
-      z.astype(np.float64),
-      float(mu),
-      float(omega),
-      float(alpha1),
-      float(beta1),
-      float(beta2),
-      float(firstSigma),
-      float(firstEps)
-  )
-
-    r     = r * float(busEpsScalar) + float(alphaBus)
-    #  The check for abs(r) > 1 makes sense for simple returns, if r was log returns, this check would be different
-    if np.any(np.abs(r) > 1):
-      raise RuntimeError(f"{ticker} produced non-return values, {np.abs(r)}")
-    cumR  = np.cumprod(1 + r) - 1
-    explode_test(1000000, cumR, "Busniess in runassetSimul")
-    # p (price path) reconstruction if needed downstream:
-    if isinstance(firstP, pd.Series):
-      firstP = float(firstP.iloc[0])
-
-
-
-    if isinstance(firstP, pd.DataFrame):
-      firstP = float(firstP.iloc[0, 0])
-
-    p = firstP * np.cumprod(1 + r)
-    areDeposit = False
-
-
-
-
-    if debug2 == True or debug2 == True:
-      print(f"In runAssetSimul, {ticker} (Yahoo) r = {r}, cumR, p, sigma, fitSigma, time, areDeposit = ", cumR, p, sigma, fitSigma, time, areDeposit)
-    if debug10 == True or debugBus == True:
-      print(f"In runAssetSimul, {ticker}[:50] (Yahoo) r = {r[:50]}, cumR, p, sigma, fitSigma, time, areDeposit = ", cumR[:50], p[:50], sigma[:50], fitSigma[:50], time[:50], areDeposit)
-    if debug10 == True  or debugBus == True:
-      print(f"In runAssetSimul, {ticker} (means) (Yahoo) r mean = {np.nanmean(r)}, eps {np.nanmean(eps)} cumR, p, sigma, fitSigma, time, areDeposit = {np.nanmean(cumR)}, **p** {np.nanmean(p)}, SIGMA {np.nanmean(sigma)}, ***FIT SIGMA {np.nanmean(fitSigma)}, {time[:30]}, {areDeposit}")
-    return(r, cumR, p, sigma, fitSigma, time, areDeposit)
-
-
-  # ______________________running for t______________________
-  # for t in range(2, len(time)):
-  #   newSigma = (omega + alpha1 * eps[t-1]**2 + beta1 * sigma[t-1]**2 + beta2 * sigma[t-2]**2)**0.5
-  #   sigma.append(newSigma)
-  #   if debug9 == True and assetClass == 'Property':
-  #     print(f"{ticker} len z {len(z)}, z {z}")
-  #   newEps = newSigma * z[t]
-  #   # negative = False
-  #   # if newEps < 0:
-  #   #   negative = True
-  #   # newEps = min(int(np.abs(newEps)*100), int(100*0.05)) / 100
-  #   # if negative == True:
-  #   #   newEps = newEps * -1
-  #   eps.append(newEps)
-  #   newR = mu + newEps # newR represents a simple return
-  #   r.append(newR)
-  #   # The price update formula, assuming newR is a simple return
-  #   newP = p[t-1] * (1 + newR)
-  #   p.append(newP)
-  # if debug10== True or debug11 == True and assetClass == 'Property':
-  #   print(f"omega {omega}, alpha1 {alpha1}, beta1 {beta1}, beta2 {beta2}, eps[:50] {eps[:50]}, sigma[:50] {sigma[:50]}")
-  # if debug == True:
-  #   print("Sigma mean: ", np.nanmean(sigma))
-  #   print("New Sigma", newSigma)
-  #   print("newEps", newEps)
-  #   print("Eps mean", np.nanmean(eps))
-  #   print("Simulation is now running for t")
-
-
-  # # Calculate cumulative simple returns after the loop
-  # cumR = np.cumprod(1 + np.array(r)) - 1
-  z = np.asarray(z[:targetLen + 2], dtype=np.float64)
-  r, sigma, eps = _garch_loop(
-      z.astype(np.float64),
-      float(mu),
-      float(omega),
-      float(alpha1),
-      float(beta1),
-      float(beta2),
-      float(firstSigma),
-      float(firstEps)
-  )
-  # r     = r * float(busEpsScalar) + float(alphaBus)
-  cumR  = np.cumprod(1 + r) - 1
-  if isinstance(firstP, pd.Series):
-    firstP = float(firstP.iloc[0])
-
-  if isinstance(firstP, pd.DataFrame):
-    firstP = float(firstP.iloc[0, 0])
-
-  p = firstP * np.cumprod(1 + r)
-  areDeposit = False
-  # areDeposit = False
-
-
-
-
-  if debug2 == True or debug2 == True:
-    print(f"In runAssetSimul, {ticker} (Yahoo) r = {r}, cumR, p, sigma, fitSigma, time, areDeposit = ", cumR, p, sigma, fitSigma, time, areDeposit)
-  if debug10 == True and assetClass == 'Property':
-    print(f"In runAssetSimul, {ticker}[:50] (Yahoo) r = {r[:50]}, cumR, p, sigma, fitSigma, time, areDeposit = ", cumR[:50], p[:50], sigma[:50], fitSigma[:50], time[:50], areDeposit)
-  if debug10 == True and assetClass == 'Property':
-    print(f"In runAssetSimul, {ticker} (means) (Yahoo) r mean = {np.nanmean(r)}, eps {np.nanmean(eps)} cumR, p, sigma, fitSigma, time, areDeposit = {np.nanmean(cumR)}, **p** {np.nanmean(p)}, SIGMA {np.nanmean(sigma)}, ***FIT SIGMA {np.nanmean(fitSigma)}, {time[:30]}, {areDeposit}")
-#   print(
-#     "RUN ASSET SIMUL END",
-#     ticker,
-#     np.shape(r),
-#     np.shape(sigma),
-#     np.shape(fitSigma)
-# )
-  explode_test(1000000, cumR, "Yahoo Able in runassetSimul")
-
-  return(r, cumR, p, sigma, fitSigma, time, areDeposit)
-
-
-
-
-
-
-
-
-#
-# r[t] = mu + eps[t]
-
-
-# eps[t] = sigma[t] * z[t]
-
-
-# sigma[t]**2 = omega + alpha1 * eps[t-1]**2 + beta * sigma[t-1]**2
-
-
-# r, cumR, p, sigma, fitSigma, time, areDeposit = run_monteCarlo(assets["Equities"]['^STOXX'])
-
-
-# print(r)
-
-
-import os
-# folder = r"C:\Users\eogha\OneDrive\Desktop\BT_Plots"
-
-
-
-
-
-
-
-
-
-
-def getGraphs(time, r, cumR, portFitSigma, portSigma, title, areDeposit):
-  x = pd.to_datetime(time[2:])
-  print(f"shape / type of x (time), {x.shape}, {type(x)}")
-
-
-
-
-  plt.xlabel = matplotlib.pyplot.xlabel
-  plt.ylabel = matplotlib.pyplot.ylabel
-  if isinstance(r, list):
-    for p in r:
-      plt.plot(x, p, alpha=alpha)
-  else:
-    plt.plot(x, r)
-  plt.title(f"Simulated {title} Return %")
-  plt.xlabel("Date")
-  plt.ylabel("Simulated Return %")
-  plt.savefig(os.path.join(folder, "Simulated_Ret_Pct.png"), dpi=300)
-  plt.show()
-
-
-
-
-  if isinstance(cumR, list):
-    for p in cumR:
-      plt.plot(x, p, alpha=alpha)
-  else:
-    plt.plot(x, cumR)
-  plt.title(f"Simulated {title} Return")
-  plt.xlabel("Date")
-  plt.ylabel("Simulated Cumulative Returns")
-  plt.savefig(os.path.join(folder, "Simulated_Cum_Ret.png"), dpi=300)
-  plt.show()
-
-
-
-
-  #______Historical vs simulated volatility____
-  #gaurd - ensuring arrays are  proper len
-  if portSigma is not None and portFitSigma is not None and 3 == 2:
-    portFitSigma = np.asarray(portFitSigma)
-
-
-    if portFitSigma.size == 0:
-      print("Woah hang on, fit sigma array is empty!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-      histVol = np.array([])
-    else:
-      histVol = portFitSigma[-500:]
-
-
-    simHorizon = 300
-
-
-    if isinstance(portSigma, list):
-      for p in portSigma:
-        if p.size == 0:
-          print("Woah hang on, sim sigma array is empty!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-          futureVol = np.array([])
-        else:
-          futureVol = p[2:simHorizon]
-
-
-        if len(histVol) == 0:
-          print("HistVol = Empty")
-        else:
-          histIndex = x[-len(histVol):]
-          plt.plot(histIndex, histVol, alpha=alpha) # , label=f"Historical {title} GARCH Volatility"
-          plt.xlabel("Date")
-          plt.ylabel("Volatility")
-
-
-
-
-        if len(futureVol) > 0:
-          futureStart = x[-1] + pd.Timedelta(days=1)
-          futureIndex = pd.date_range(start=futureStart, periods=len(futureVol), freq='B')
-          plt.plot(futureIndex, futureVol) # , label=f"Simulated {title} Future Volatility"
-
-
-    else:
-      portSigma = np.asarray(portSigma)
-
-
-      if portSigma.size == 0:
-        print("Woah hang on, sim sigma array is empty!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        futureVol = np.array([])
-      else:
-        futureVol = portSigma[2:simHorizon]
-
-
-      if len(histVol) == 0:
-        print("HistVol = Empty")
-      else:
-        histIndex = x[-len(histVol):]
-        plt.plot(histIndex, histVol) # label=f"Historical {title} GARCH Volatility"
-        plt.xlabel("Date")
-        plt.ylabel("Volatility")
-
-
-
-
-      if len(futureVol) > 0:
-        futureStart = x[-1] + pd.Timedelta(days=1)
-        futureIndex = pd.date_range(start=futureStart, periods=len(futureVol), freq='B')
-        plt.plot(futureIndex, futureVol) # , label=f"Simulated {title} Future Volatility"
-    plt.title(f"Historical vs Simulated {title} Volatility")
-    plt.xticks(rotation=45)
-    plt.savefig(os.path.join(folder, "Vol_Comparision2.png"), dpi=300)
-    # plt.legend()
-    plt.show()
-
-
-
-
-
-
-#________Actually running multiple assets in portfolio__________
-# ______________ Actual Monte Carlo run _______
-
-
-
-def applyCorrelationModifer(
-      fullCorr,
-      allTickersOrdered,
-      assets,
-      inputParameters):
   
-  tickerToClass = {}
-  for assetClass, tickers in assets.items():
-    for ticker in tickers:
-        tickerToClass[ticker] = assetClass
-  mode = inputParameters["Correlation Modifier"]["Mode"]
-  fullCorrInitial = fullCorr.copy()
-  fullCorr = fullCorrInitial.copy()
-  if mode == "Global":
-    scalar = inputParameters["Correlation Modifier"]["Global Scalar"]
-    mask = ~np.eye(fullCorr.shape[0], dtype=bool)
-
-    fullCorr[mask] *= scalar 
-  elif mode == "AssetClass" or mode == "assetClass":
-    blah = 1
-    # fullCorr = fullCorrInitial
-    try:
-      for i, ticker_i in enumerate(allTickersOrdered):
-        for j, ticker_j in enumerate(allTickersOrdered):
-            class_i = tickerToClass[ticker_i]
-            class_i_modifer = inputParameters["Correlation Modifier"]["assetClassScalars"].get(class_i, 1.0)
-
-            class_j = tickerToClass[ticker_j]
-            class_j_modifer = inputParameters["Correlation Modifier"]["assetClassScalars"].get(class_j, 1.0)
-            modifer = max(class_j_modifer, class_i_modifer) / 2
-            fullCorr[i, j] *= modifer
-    except Exception:
-       raise Exception
-  fullCorr = np.clip(fullCorr, -0.999, 0.999)
-  eigvals = np.linalg.eigvals(fullCorr)
-
-  if np.min(eigvals.real) < 0:
-      fullCorr += (
-          -np.min(eigvals.real)
-          + 1e-6
-      ) * np.eye(fullCorr.shape[0])
-  np.fill_diagonal(fullCorr, 1.0)
-  return fullCorr
-
-
   
-
-
-def runPort(
-    coeffsDict, assetWeights, assetsCompleted, corrAbleClasses, assetsYahoo,
-    assets, households, time, returnsDict, inputParameters, busEpsScalar=1.1, alphaBus=None):
-
-  def _addHouseholdsZeros(portRet):
-    for household in assetWeights:
-      if household not in portRet:
-        portRet[household] = np.zeros(len(time[2:]))
-    return portRet
-
-
-  def _addHouseholdsEmpty(portRet):
-    for household in assetWeights:
-      if household not in portRet:
-        portRet[household] = []
-    return portRet
-
-
-  def _addHouseholdsEmptyDict(portRet):
-    for household in assetWeights:
-      if household not in portRet:
-        portRet[household] = {}
-    return portRet
-
-  
-  portRet = {}
-  portCumR = {}
-  portSigma = {}
-  portFitSigma = {}
-  portRet = _addHouseholdsZeros(portRet)
-  portCumR = _addHouseholdsZeros(portCumR)
-  portSigma = _addHouseholdsZeros(portSigma)
-  portFitSigma = _addHouseholdsZeros(portFitSigma)
-  zTotal = []
-  zMeans = []
-  zStds = []
-  assetLevelZ = []
-  classLevelZmeans = []
-  commonZ = np.random.normal(loc=0.0, scale=1, size=len(time))
-
-
-  assetReturnPaths = {} #asset class, ticker -> r_t
-  assetSigmaPaths = {}
-
-
-
-
-
-
-  for household in assetWeights:
-    assetReturnPaths[household] = {}
-    for assetClass in assetsCompleted:
-      assetReturnPaths[household][assetClass] = {}
-      for asset in assetsCompleted[assetClass]:
-        assetReturnPaths[household][assetClass][asset] = {}
-  for household in assetWeights:
-    assetSigmaPaths[household] = {}
-    for assetClass in assetsCompleted:
-      assetSigmaPaths[household][assetClass] = {}
-      for asset in assetsCompleted[assetClass]:
-        assetSigmaPaths[household][assetClass][asset] = {}
-
-
-  # bugCheckData = ()
-  # allClosePrices = pd.DataFrame()
-  # tickersLessDeposit = []
-  # for assetClass in assets:
-  #   for ticker in assets[assetClass]:
-  #     # if any(ticker in assetsYahoo[cls] for cls in assetsYahoo):
-  #     if assetClass in assetsCompleted and ticker in assetsCompleted[assetClass] and assetClass in corrAbleClasses:
-  #       allClosePrices[ticker] = coeffsDict[assetClass][ticker]['histRet']
-  #       if debug2 == True:
-  #         print(f"YOOOOO allClosePrices (for {ticker}, {assetClass} up in da house: ", allClosePrices[ticker])
-  #     else:
-  #       if debug2 == True:
-  #         print(f"It is skipping now, asset is {ticker}, {assetClass}")
-
-
-  #       continue
-  # print("Hey, printining allClosePrices over here!!", allClosePrices)
-  # print("Oi, printing allClosePrices.size() over HERE!", allClosePrices.size())
-  # corrCols = [
-  #     c for c in allClosePrices.columns
-  #     if c in corrAbleClasses
-  # ]
-  # corrPrices = allClosePrices[corrCols]
-
-
+  #================================================
+  # Correlation matrix + tickers ordered generation
+  #================================================
   closeDict = {}
   for assetClass in assets:
       for ticker in assets[assetClass]:
@@ -6826,7 +5982,7 @@ def runPort(
         n_d = len(dailyTickers)
         n_m = len(monthlyTickers)
         corrCross = np.zeros((n_d, n_m))
-  # ADD SAFE DEFAULT for empty case
+  #  SAFE DEFAULT for empty case
   nTotal = n_d + n_m
   if nTotal == 0:
       nTotal = 1
@@ -6869,240 +6025,926 @@ def runPort(
       
       d = 1.0 / np.sqrt(np.diag(fullCorr))
       fullCorr = fullCorr * np.outer(d, d)
+  if debugCorrelation:
+      print("\nFINAL CORR MATRIX")
+      print(
+          "Mean corr:",
+          np.mean(fullCorr[np.triu_indices_from(fullCorr, k=1)])
+      )
+      print(
+          "Min eig:",
+          np.linalg.eigvalsh(fullCorr).min()
+      )
+  return coeffsDict, returnsDict, fullCorr, allTickersOrdered
 
-  L = np.linalg.cholesky(fullCorr)
+
+def runAssetSimul(ticker, z, coeffsDict, assetWeights, assetsCompleted, time, rng=None, busEpsScalar=1.1, alphaBus=None):
+  assets = assetsCompleted
+  def _makeSmall(series, name):
+      limit = 300
+      # Convert single-column DataFrame to Series for consistent integer-based indexing
+      # if isinstance(series, pd.DataFrame) and series.shape[1] == 1:
+      #     series = series.iloc[:, 0]
+      print(f"Mean {name}: {np.nanmean(series)}, std {np.nanstd(series)}")
+      D1 = series[:int(len(series) / 10)]
+      D10 = series[int((len(series) / 10) * 9):]
+      # D1 = series[(len(series) - 10]
+      print(f"First 10 items in {name}: {series[:10]}")
+      print(f"Mean of first 10% of {name}: {np.nanmean(D1)}, std {np.nanstd(D1)}")
+      print(f"Mean of last 10% of {name}: {np.nanmean(D10)}, std {np.nanstd(D10)}")
+      newSeries = [] # Initialize newSeries outside the if block
+      if len(series) > limit:
+        for i in range(len(series)):
+          if debug6 == True:
+            if i % 100 == 0:
+              print(f"i is {i}, series{i} is {series[i]} ")
+              print(f"(len(series) / limit) {(len(series) / limit)}")
+          if i % int(len(series) / limit) == 0:
+            newSeries.append(series[i])
+            if debug6 == True:
+              print(f"series being appended, len is {len(newSeries)}")
+      print(f"len of new {name} {len(newSeries)}") 
+      return newSeries
+  if rng == None:
+     rng = np.random.default_rng()
+     print(f"NO RNG FOR {ticker}!! notice_me!!!!")
   
-#================================================
-    # if not useIndependentNoise:
-    #   # dated = {}
-    #   # for ticker, arr in closeDict.items():
-    #   #     arr_trimmed = arr[-minLen:]                    # take the most recent min_len days
-    #   #     idx = timeDT[-minLen:]                        # matching tail of master time index
-    #   #     dated[ticker] = pd.Series(arr_trimmed, index=idx)
+  
+  if debugVolatility2:
+    print("RUN ASSET SIMUL START", ticker)
+    # print("PROPERTY BRANCH", ticker)
+    for name, value in {
+      # "histRetMonthly": histRetMonthly,
+      # "histRet": histRet,
+      "z": z,
+      "time": time, }.items():
+      try:
+          print(name, np.shape(value))
+      except:
+          pass
+  targetLen = len(time) #- 2
+  # z = z[:targetLen]
+  z = np.asarray(z[:targetLen], dtype=np.float64)
 
-    #   # allClosePrices = pd.DataFrame(dated)
-    #   # # Align all
-    #   # # minLen = min(len(v) for v in closeDict.values())
-    #   # # allClosePrices = pd.DataFrame({k: v[:minLen] for k, v in closeDict.items()})
+  for subheading, items in assets.items():
+    if ticker in items:
+      assetClass = subheading
+  if debug3 == True:
+    print(f"Ticker = {ticker}, AssetClass = {assetClass}")
+  if assetClass == 'Deposits' and False:
+    muMonthly = coeffsDict[assetClass][ticker]['mu'] # Base (simple) hist returns
+    if isinstance(muMonthly, pd.Series):
+            muMonthly = muMonthly.values
 
+    monthsNeeded = int(np.ceil(targetLen / 30)) + 1
+    sampledMonthly = np.random.choice(muMonthly, size=monthsNeeded, replace=True)
 
+    muVol = np.nanstd(muMonthly) / np.sqrt(30)
+    if muVol <= 0.00002: # fallback if tiny mu volatility
+      muVol = 0.00002
+    z = z[:targetLen]
+    if len(muMonthly) < targetLen:
+        mu_daily = np.repeat(muMonthly, int(np.ceil(targetLen / len(muMonthly))))[:targetLen]
+    else:
+        mu_daily = mu[:targetLen]
+    # if isinstance(mu_daily, (np.ndarray, pd.Series)):
+    #     # Create daily index
+    #     daily_dates = np.arange(targetLen)
+    #     # Monthly indices (spread evenly over the daily range)
+    #     monthly_indices = np.linspace(0, targetLen-1, len(muMonthly))
+    #     # Interpolate
+    #     from scipy import interpolate
+    #     f = interpolate.interp1d(monthly_indices, mu_daily, kind='linear', fill_value='extrapolate')
+    #     mu_daily = f(daily_dates)
 
-    #   # allReturns = allClosePrices.dropna()
-    #   dated = {}
-    #   for ticker, arr in closeDict.items():
-
-    #       arr_full = arr
-
-    #       idx = timeDT[-len(arr_full):]
-    #       dated[ticker] = pd.Series(arr_full, index=idx)
-    #   allClosePrices = pd.DataFrame(dated)
-    #   allReturns = allClosePrices.dropna()
-
-    #   # If after dropping NA we have < 2 rows, use independent noise
-    #   if len(allReturns) < 100:
-    #       use_independent_noise = True
-    #       print(f"WARNING: After dropping NA, only {len(allReturns)} rows remain. Using independent noise.")
-    #   if debug2 == True:
-    #     print("Hey so uh allReturns is now ", allReturns)
-    #     print("Hey so uh allClosePrices is now ", allClosePrices)
-
-    # # ======================================
-    # # Correlation matrix creation
-    # # ======================================
-
-    # dailyTickers = list(allReturns.columns)
-    # corrDaily = np.corrcoef(allReturns.values.T) # shape = (n Daily, n Daily)
-    # for c in allClosePrices.columns:
-    #   print(c, len(allClosePrices[c].dropna()))
-    # # seperate monthly block (otherwise, the hundreds of data points for property / less for deposits, vs thousands for yahoo assets, corrupts volatility)
-    # monthlyTickers = []
-    # monthlyData = {}
-
-
-    # # 1. Build dfMonthly with normalised MS index
-    # for assetClass in ['Property', 'Deposits']:
-
-    #     if assetClass in coeffsDict:
-    #         for ticker in coeffsDict[assetClass]:
-    #             if debugVolatility3:
-    #               print(f"While building dfMonthly, {ticker} is in {assetClass}")
-    #             raw = coeffsDict[assetClass][ticker].get(
-    #                 'histRetMonthly',
-    #                 coeffsDict[assetClass][ticker].get('histRet', None)
-    #             )
-    #             if raw is None:
-    #                 continue
-    #             s = pd.Series(np.asarray(raw).ravel())
-    #             # Always rebuild the index from scratch anchored to property start date
-    #             s.index = pd.date_range(
-    #                 start=pd.Timestamp('2010-01-01'),
-    #                 periods=len(s),
-    #                 freq='MS'
-    #             )
-    #             monthlyData[ticker] = s
-    #             monthlyTickers.append(ticker)
-
-    # dfMonthly = pd.DataFrame(monthlyData).dropna()
-    # corrMonthly = np.corrcoef(dfMonthly.values.T)
-
-    # # 2. Resample daily allReturns to monthly – force DatetimeIndex first
-    # allReturns_dt = allReturns.copy()
-    # allReturns_dt.index = pd.to_datetime(allReturns_dt.index).normalize()
-
-    # monthly_cols = {}
-    # for col in allReturns_dt.columns:
-    #     resampled = (1 + allReturns_dt[col]).resample('MS').prod() - 1
-    #     monthly_cols[col] = resampled
-
-    # dfDailyMonthly = pd.DataFrame(monthly_cols)
-
-    # # 3. Correct intersection between the TWO DataFrames
-    # commonIDX = dfDailyMonthly.index.intersection(dfMonthly.index)
-    # print(f"dfDailyMonthly shape: {dfDailyMonthly.shape}")
-    # print(f"dfMonthly shape:      {dfMonthly.shape}")
-    # print(f"commonIDX length:     {len(commonIDX)}")
-
-    # # 4. If there's still no overlap, fall back to zero cross-correlations
-    # if len(commonIDX) < 2:
-    #     print("WARNING: No date overlap between daily-resampled and monthly property data.")
-    #     print(f"  dfDailyMonthly range: {dfDailyMonthly.index[0]} → {dfDailyMonthly.index[-1]}")
-    #     print(f"  dfMonthly range:      {dfMonthly.index[0]} → {dfMonthly.index[-1]}")
-    #     n_d = len(dailyTickers)
-    #     n_m = len(monthlyTickers)
-    #     corrCross = np.zeros((n_d, n_m))
     # else:
-    #     crossDataDaily   = dfDailyMonthly.loc[commonIDX].values
-    #     crossDataMonthly = dfMonthly.loc[commonIDX].values
-    #     n_d = len(dailyTickers)
-    #     n_m = len(monthlyTickers)
-    #     corrCross = np.zeros((n_d, n_m))
-    #     for i in range(n_d):
-    #         for j in range(n_m):
-    #             if crossDataDaily.shape[1] > i and crossDataMonthly.shape[1] > j:
-    #                 c = np.corrcoef(crossDataDaily[:, i], crossDataMonthly[:, j])[0, 1]
-    #                 corrCross[i, j] = c if np.isfinite(c) else 0.0
-    # # for assetClass in ['Property']:#, 'Deposits', 'Business Wealth']:
-    # #   if assetClass in coeffsDict:
-    # #     for ticker in coeffsDict[assetClass]:
-    # #       if debugVolatility2:
-    # #         print(f"{ticker} histRetMonthly: {coeffsDict[assetClass][ticker].get('histRetMonthly', None)}")
-    # #       raw = coeffsDict[assetClass][ticker].get('histRetMonthly', coeffsDict[assetClass][ticker].get('histRet', coeffsDict[assetClass][ticker].get('mu', None)))
-    # #       if raw is None:
-    # #         if debugVolatility2:
-    # #           print(f"No histRet or mu for {ticker}")
-    # #         continue
-    # #       s = pd.Series(raw) if not isinstance(raw, pd.Series) else raw
-    # #       if not isinstance(s.index, pd.DatetimeIndex):
-    # #         s.index = pd.date_range(end=pd.Timestamp('2010-01-01'), periods=len(s), freq='MS')
-    # #       monthlyData[ticker] = s
-    # #       monthlyTickers.append(ticker)
-    # # dfMonthly = pd.DataFrame(monthlyData).dropna()
-    # # corrMonthly = np.corrcoef(dfMonthly.values.T)  #shape = (n Daily, n Daily)
-    # # print(f"ABOUT TO BUILD DFMONTHLY({ticker})")
-    # # dfDailyMonthly = pd.DataFrame()
-    # # print("BUILT DFMONTHLY")
-
-    # # for col in allReturns.columns:
-    # #   s = allReturns[col].copy()
-    # # s.index = pd.to_datetime(s.index)
-    # # dfDailyMonthly[col] = (1 + s).resample('MS').prod() - 1
-    # # #   dfDailyMonthly[col] = (1 + allReturns[col]).resample('MS').prod() - 1
-
-    # # #align
-    # # commonIDX = dfDailyMonthly.index.intersection(dfMonthly.index)
-    # # print(dfDailyMonthly.shape)
-    # # print(dfMonthly.shape)
-    # # print(len(commonIDX))
-    # # crossDataDaily = dfDailyMonthly.loc[commonIDX].values
-    # # crossDataMonthly = dfMonthly.loc[commonIDX].values
-
-    # # n_d = len(dailyTickers)
-    # # n_m = len(monthlyTickers)
-    # # corrCross = np.zeros((n_d, n_m))
-    # # for i in range(n_d):
-    # #   for j in range(n_m):
-    # #     c = np.corrcoef(crossDataDaily[:, i], crossDataMonthly[:, j])[0,1]
-    # #     corrCross[i, j] = c if np.isfinite(c) else 0.0
-
-    # #get full matrix
-
-    # nTotal = n_d + n_m
-    # fullCorr = np.zeros((nTotal, nTotal))
-    # fullCorr[:n_d, :n_d] = corrDaily
-    # fullCorr[n_d:, n_d:] = corrMonthly
-    # fullCorr[:n_d, n_d:] = corrCross
-    # fullCorr[n_d:, :n_d] = corrCross.T
-
-    # #regularise + Cholesky
-    # fullCorr = fullCorr + 1e-6 * np.identity(nTotal)
+        # mu_daily = float(mu_daily)
+    mu_daily = mu_daily / 30
+    r = mu_daily + muVol * z
+    if isinstance(r, pd.Series):
+            r = r.values
+    firstP = coeffsDict[assetClass][ticker]['firstP']
+    if isinstance(firstP, (pd.Series, pd.DataFrame)):
+        firstP = float(firstP.iloc[0] if hasattr(firstP, 'iloc') else firstP)
+    # For simple returns, cumulative product of (1 + r) is used for price
+    cumR = np.cumprod(1 + r) - 1 # Cumulative simple return
+    explode_test(1000000, cumR, "Deposits in runassetSimul")
+    if isinstance(firstP, pd.Series):
+      firstP = float(firstP.iloc[0])
 
 
-    # eigvals = np.linalg.eigvals(fullCorr)
-    # if eigvals.min() < 0:
-    #   fullCorr += (-eigvals.min() + 1e-6 ) * np.identity(nTotal)
-    # L = np.linalg.cholesky(fullCorr)
-    # # dfMasterReturns = pd.DataFrame(masterReturnDict).fillna(0.0)
-    # # masterReturnDict = {}
-    # # for col in allReturns.columns:
-    # #   masterReturnDict[col] = allReturns[col]
 
-    # # for assetClass in ['Property', 'Deposits', 'Business Wealth']:
-    # #   if assetClass in coeffsDict:
-    # #     for ticker in coeffsDict[assetClass]:
-    # #       if 'histRet' in coeffsDict[assetClass][ticker]:
-    # #         masterReturnDict[ticker] = pd.Series(coeffsDict[assetClass][ticker]['histRet']).ravel()
-    # #       elif 'mu' in coeffsDict[assetClass][ticker]:
-    # #         masterReturnDict[ticker] = pd.Series(coeffsDict[assetClass][ticker]['mu']).ravel()
-    # # dfMasterReturns = pd.DataFrame(masterReturnDict).fillna(0.0)
+    if isinstance(firstP, pd.DataFrame):
+      firstP = float(firstP.iloc[0, 0])
 
-    # # # histMatrix = allReturns.values.
-    # # histMatrix = dfMasterReturns.values.T
+    p = firstP * np.cumprod(1 + r)
+    # sigma = np.zeros_like(r)
+    sigma = np.full_like(r, muVol)
+    areDeposit = False
+    assert len(r) == targetLen, f"Length mismatch for {ticker}: expected {targetLen}, got {len(r)}"
+    return (r, cumR, p, sigma, sigma, time, areDeposit)
+# _________Getting White Noise (z)_____________________
+  # Initialize z once for the simulation path
+  # print(f"z in {ticker} len {len(z)}")
+  zMean = np.nanmean(z)
+
+
+  zStd = np.nanstd(z)
+
+
+  zVariance = np.var(z)
+
+
+
+
+  if debug4 == True:
+    print("Simulation is now runAssetSimul")
+    print('Mean is ', zMean)
+    print('Std is ', zStd)
+    print('Variance is ', zVariance)
+    print('len(time) is ', len(time))
+  # print('len(number) is ', len(z))
+
+  
+
+
+
+
+  #__________________________day 1______________________
+  #t-1 for the first day would be an error as there is prior value. So, I'm getting the values from the last historic day
+
+
+  #getting the fitted (based on actual historic data) versions of simga and epsilon
 
 
 
 
 
 
-    # # histCorr = np.corrcoef(histMatrix)
-    # # if debug2 == True:
-    # #   print("histCorr is ", histCorr)
-    # #   print("histMatrix is ", histMatrix)
-    # # regulariser = 1e-6
-    # # regularisedHistCorr = histCorr + regulariser * np.identity(histCorr.shape[0])
-    # # L = np.linalg.cholesky(regularisedHistCorr) # cholesky decomp
-    # # if debug2 == True:
-    # #   print("L is ", L)
-    # #   print("regularisedHistCorr is ", regularisedHistCorr)
-    # #   print("np.identity(histCorr.shape[0] is ", np.identity(histCorr.shape[0]))
+  # if assetClass in assetsCompleted and assetClass not in assetsYahoo:
+  if assetClass == 'Property' or assetClass == 'Deposits':
 
-    # allTickersOrdered = dailyTickers + monthlyTickers
-    # # uncorrZ = np.random.normal(size=(6, len(time)))
-    # # uncorrZ = studentT.rvs(df=4, size=(6, len(time)))
-    # # print("L shape", L.shape, "uncorrZ", uncorrZ.shape)
-    # # zCorrelated = L @ uncorrZ
-    # # nAssets = 0
-    # # for assetClass in assets:
-    # #   if assetClass in assetsYahoo:
-    # #     nAssets += len(assets[assetClass])
-  nAssets = L.shape[0]
+    if ticker in assetsCompleted[assetClass]:
+      # if assetClass in ['Property', 'Deposits']:
+      mu_d = coeffsDict[assetClass][ticker]['mu_daily']
+      sig_d = coeffsDict[assetClass][ticker]['sigma_daily']
+      firstP = coeffsDict[assetClass][ticker]['firstP']
+      
+      # Simulate daily log returns using scaled monthly moments
+      r = mu_d + sig_d * z[:targetLen]
+      
+      # Convert log returns to cumulative simple returns
+      cumR = np.exp(np.cumsum(r)) - 1
+      p = firstP * np.exp(np.cumsum(r))
+      
+      sigma = np.full_like(r, sig_d)
+      areDeposit = (assetClass == 'Deposits')
+      explode_test(1000000, cumR, "Property in runassetSimul")
+      r_simple = np.exp(r) - 1.0
+      if debugVolatility2:
+        print("PROPERTY DEBUG")
+        print("ticker", ticker)
+        print("mu shape", np.shape(mu))
+        # print("sigmaScalar shape", np.shape(sigmaScalar))
+        print("z shape", np.shape(z))
+      return r_simple, cumR, p, sigma, sigma, time, areDeposit # sigma 2 = fitSigma
+      #--------------
+      # GARCH running
+      #--------------
+      # fitSigma = coeffsDict[assetClass][ticker]['fitSigma']
+      # sigmaScalar = coeffsDict[assetClass][ticker]['sigmaScalar']
+      # if debug8 == True:
+      #   print(f"fit Sigma mean {np.nanmean(fitSigma)}, first 20 items {fitSigma[:20]}")
 
 
-  # nAssets = sum(len(assets[assetClass]) for assetClass in assets if assetClass in assetsYahoo)
-  uncorrZ = np.random.normal(0, 1, size=(nAssets, (len(time))))
-  if debug2 == True:
-    print("uncorrZ is ", uncorrZ)
-  # uncorrZ = studentT.rvs(df=4, size=len(time))
-  # print("L shape", L.shape, "uncorrZ", uncorrZ.shape)
-  zCorrelated = L @ uncorrZ
+      #   plt.plot(time[:len(fitSigma)], fitSigma)
+      #   plt.title(f"Fit Sigma for {ticker}")
+      #   plt.xlabel("Date")
+      #   plt.ylabel("Sigma")
+      #   plt.show()
+      #   _makeSmall(fitSigma, {ticker})
+      # omega = coeffsDict[assetClass][ticker]['omega']
+      # alpha1 = coeffsDict[assetClass][ticker]['alpha1']
+      # beta1 = coeffsDict[assetClass][ticker]['beta1']
+      # mu = coeffsDict[assetClass][ticker]['mu']
+
+
+      # firstP = coeffsDict[assetClass][ticker]['firstP']
+      # secondP = coeffsDict[assetClass][ticker]['secondP']
+      # if debug14 == True:
+      #   print("Type:", type(coeffsDict[assetClass][ticker]))
+      #   print("Keys (day 1 runAssetSimul) of coeffsDict[assetClass][ticker]", coeffsDict[assetClass][ticker].keys())
+      #   print(f"Asset class: {assetClass}, ticker: {ticker}")
+      # # print("Type of obj ", type(obj))
+      # # print("Keys of obj ", obj.keys())
+      # # mu = coeffsDict[assetClass][ticker]['mu']
+      # # mu = getMu(ticker)
+      # # mu = coeffsDict[assetClass][ticker]['mu']
+      # if debug4 == True:
+      #   print(f"In runAssetSimul, mu = {coeffsDict[assetClass][ticker]['mu']}")
+      # # print(f"shape of fitSigma: {fitSigma}, shape of z[2:len(time)] = {z[2:len(time)]}")
+      #   print("Time is ==== ", time)
+
+
+      #   print(f"{ticker} In runAssetSimul, len of z[2:len(time)] = {len(z[2:len(time)])}")
+      #   print(f"{ticker} In runAssetSimul, len(time) = {len(time)}")
+      #   print(f"{ticker} In runAssetSimul, fitSigma = {fitSigma}")
+      #   print(f"{ticker} In runAssetSimul, len fitSigma = {len(fitSigma)}")
+      #   print(f"{ticker} In runAssetSimul, z = {z}")
+      #   print(f"{ticker} In runAssetSimul, len(z) = {len(z)}")
+      # # fitSigma2d = fitSigma[np.newaxis, :]#ensuring proper alignment this is where it is a series
+      # # r = mu + fitSigma2d * z[2:len(time)]
+
+      # if debugVolatility2:
+      #   print("PROPERTY DEBUG")
+      #   print("ticker", ticker)
+      #   print("mu shape", np.shape(mu))
+      #   print("sigmaScalar shape", np.shape(sigmaScalar))
+      #   print("z shape", np.shape(z))
+
+      # def align_for_sim(mu, sigma, z):
+
+      #   z = np.asarray(z)
+
+      #   arrays = []
+
+      #   if not np.isscalar(mu):
+      #       mu = np.asarray(mu)
+      #       arrays.append(mu)
+
+      #   if not np.isscalar(sigma):
+      #       sigma = np.asarray(sigma)
+      #       arrays.append(sigma)
+
+      #   arrays.append(z)
+
+      #   n = min(len(x) for x in arrays)
+
+      #   if not np.isscalar(mu):
+      #       mu = mu[:n]
+
+      #   if not np.isscalar(sigma):
+      #       sigma = sigma[:n]
+
+      #   z = z[:n]
+
+      #   return mu, sigma, z
+
+      # firstSigma = fitSigma.iloc[-1] / np.sqrt(30) if hasattr(fitSigma, 'iloc') else fitSigma[-1] / np.sqrt(30)
+      # firstEps = firstSigma * rng.normal()
+
+      # mu, sigmaScalar, z = align_for_sim(mu, sigmaScalar, z)
+      # targetLen = len(time) - 2
+      # z = z[:targetLen+2]
+      # # r = mu + sigmaScalar * z # still simple returns
+      # # sigma = sigmaScalar * z
+
+      # # runnning GARCH
+      # r, sigma, eps = _garch_loop(
+      #   z.astype(np.float64),
+      #   float(mu / 30),
+      #   float(omega / 30),
+      #   float(alpha1 / np.sqrt(30)), #approx
+      #   float(beta1 / np.sqrt(30)),
+      #   0.0, #no beta 2
+      #   float(firstSigma),
+      #   float(firstEps)
+      # )
+      # if debug12 == True:
+      #   print(f"{ticker} HEYY IN RUNASSETSIMUL PROPERTY mean r {np.nanmean(r)}, mu {mu}, sigmaScalar {sigmaScalar}, sigma mean {np.nanmean(sigma)}, sigma std {np.nanstd(sigma)}, z mean {np.nanmean(z)}, z std {np.nanstd(z)}")
+      # # r = mu + fitSigma2d * z # r will be simple returns
+
+
+      # cumR = np.cumprod(1 + r) - 1 # Cumulative simple return
+      # explode_test(1000000, cumR, "Property in runassetSimul")
+
+      # if isinstance(firstP, pd.Series):
+      #   firstP = float(firstP.iloc[0])
+
+
+
+      # if isinstance(firstP, pd.DataFrame):
+      #   firstP = float(firstP.iloc[0, 0])
+
+
+      # p = firstP * np.cumprod(1 + r)
+      # if debug4 == True:
+      #  print("fitSigma shape / type, ", type(fitSigma), getattr(fitSigma, 'shape', None))
+      # # sigma = np.full(len(r), fitSigma)
+      # # fitSigma = sigma
+      # areDeposit = False
+      # if debug2 == True:
+      #   # print(f"In runAssetSimul,(non yahoo), r = {r}, cumR, p, sigma, fitSigma, time, areDeposit = ", cumR, p, sigma, fitSigma, time, areDeposit)
+
+
+      #   print(f"In runAssetSimul, r mean = {np.nanmean(r)}, cumR, p, sigma, fitSigma, time, areDeposit = ")
+      # # sigma = fitSigma
+      # # sigma = sigmaScalar + np.random.normal(0, 0.0001, size=len(r))
+      # if debugVolatility2:
+      #   print(f"Ticker {ticker}")
+      #   print("len(r)", len(r))
+      #   print("len(z)", len(z))
+      #   print("len(time)", len(time))
+      #   # print("len(portRet)", len(portRet))
+      #   # print("len(portSig/ma)", len(portSigma))
+      # return(r, cumR, p, sigma, fitSigma, time, areDeposit)
+
+  # if not property:
+  omega = coeffsDict[assetClass][ticker]['omega']
+  alpha1 = coeffsDict[assetClass][ticker]['alpha1']
+  beta1 = coeffsDict[assetClass][ticker]['beta1']
+  beta2 = coeffsDict[assetClass][ticker]['beta2']
+  fitSigma = coeffsDict[assetClass][ticker]['fitSigma']
+  if debug4 == True:
+    print(f"FitSigma in day 1 grounding for {ticker} is ", fitSigma)
+  firstP = coeffsDict[assetClass][ticker]['firstP']
+  secondP = coeffsDict[assetClass][ticker]['secondP']
+  fitEps = coeffsDict[assetClass][ticker]['histRet'] - coeffsDict[assetClass][ticker]['mu']
+  longVar = omega / (1 - alpha1 - beta1 - beta2)
+  if debug10== True:
+    print(f"{ticker} longVar {longVar}")
+    print(f"{ticker} sum of Alpha1 {alpha1} beta1 {beta1} and beta2 {beta2} {beta2 + alpha1 + beta1}")
+  # unconditionalSigma = np.nanmean(fitSigma)
+  # firstSigma = unconditionalSigma * (1 + np.random.normal(0, 0.1))
+  # secondSigma = unconditionalSigma * (1 + np.random.normal(0, 0.1))
+
+
+  # firstSigma = fitSigma.iloc[-2].item()
+  # secondSigma = fitSigma.iloc[-1].item()
+  # firstSigma = fitSigma.iloc[-2]
+  # secondSigma = fitSigma.iloc[-1]
+  firstSigma = np.sqrt(longVar)
+
+
+  secondSigma = firstSigma
+  firstEps = firstSigma * rng.normal()
+  # firstEps = fitEps.iloc[-1]
+  # firstEps = fitEps.iloc[-1].item()
+  if debug == True:
+    print('first sigma is', firstSigma, 'second sigma is ', secondSigma, 'firstEps is ', firstEps)
+    print("Simulation is now day 1")
+  if debug8 == True:
+    print(f"first sigma is", firstSigma, 'second sigma is ', secondSigma, 'firstEps is ', firstEps)
+    print(f"fitEps is {fitEps}, coeffsDict[assetClass][ticker][histRet] {coeffsDict[assetClass][ticker]['histRet']}, coeffsDict[assetClass][ticker][mu], {coeffsDict[assetClass][ticker]['mu']}")
+    print("Simulation is now day 1")
+
+  # defining return, sigma, epsilon and prices lists, as well as euluer
+
+  r = []
+  sigma = [firstSigma, secondSigma]
+  eps = [firstEps, firstEps] # list lenghts must match
+  if debug10== True and assetClass == 'Property':
+    print(f"Eps for {ticker} starting 2 values {eps}")
+  p = [firstP, secondP] #prices
+  e = np.exp(1) #euler
+  if debug == True:
+    print("non deposit")
+
+
+
+
+
+
+
+  # mu = (1 + muHist) ** 252 -1
+
+
+
+
+
+
+
+  # mu = getMu(ticker) # + np.random.normal(0, 0.00005)
+
+    # print("mean(fitSigma)", unconditionalSigma)
+
+
+  mu = coeffsDict[assetClass][ticker]['mu']
+  assert not isinstance(mu, dict), "Tried to add a dict instead of numeric data"
+  if debug == True:
+    print("mu daily is", mu)
+  
+  #   for t in range(2, len(time)):
+  #     newSigma = (omega + alpha1 * eps[t-1]**2 + beta1 * sigma[t-1]**2 + beta2 * sigma[t-2]**2)**0.5
+  #     sigma.append(newSigma)
+  #     if debug9 == True and assetClass == 'Property':
+  #       print(f"{ticker} len z {len(z)}, z {z}")
+  #     newEps = newSigma * z[t]
+  #     # negative = False
+  #     # if newEps < 0:
+  #     #   negative = True
+  #     # newEps = min(int(np.abs(newEps)*100), int(100*0.05)) / 100
+  #     # if negative == True:
+  #     #   newEps = newEps * -1
+  #     eps.append(newEps)
+  #     newR = mu + newEps * busEpsScalar + alphaBus # newR represents a simple return
+
+
+
+
+  #     r.append(newR)
+  #     # The price update formula, assuming newR is a simple return
+  #     newP = p[t-1] * (1 + newR)
+  #     p.append(newP)
+  #   if debug10== True or debug11 == True or debugBus == True:
+  #     print(f"omega {omega}, alpha1 {alpha1}, beta1 {beta1}, beta2 {beta2}, eps[:50] {eps[:50]}, sigma[:50] {sigma[:50]}")
+  #   if debugBus == True:
+  #     print("Sigma mean: ", np.nanmean(sigma))
+  #     print("New Sigma", newSigma)
+  #     print("newEps", newEps)
+  #     print("Eps mean", np.nanmean(eps))
+  #     print("Simulation is now running for t")
+
+
+  #   # Calculate cumulative simple returns after the loop
+  #   cumR = np.cumprod(1 + np.array(r)) - 1
+  z = np.asarray(z[:targetLen], dtype=np.float64)
+  r, sigma, eps = _garch_loop(
+    z.astype(np.float64),
+    float(mu),
+    float(omega),
+    float(alpha1),
+    float(beta1),
+    float(beta2),
+    float(firstSigma),
+    float(firstEps)
+)
+  r_simple = np.exp(r) - 1.0 # Convert to simple returns for valid portfolio aggregation
+  if ticker == 'Business Wealth S.E':
+    r_simple     = r_simple * float(busEpsScalar) + float(alphaBus)
+    #  The check for abs(r) > 1 makes sense for simple returns, if r was log returns, this check would be different
+  if np.any(np.abs(r_simple) > 1):
+    violators = r_simple[np.abs(r_simple) > 1]
+    indices = np.where(np.abs(r_simple) > 1)[0]
+    print(f"DEBUG CRASH for {ticker}: Found {len(violators)} violations.")
+    print(f"First 5 violating returns: {violators[:5]}")
+    print(f"At array indices: {indices[:5]}")
+    # raise RuntimeError(f"{ticker} produced non-return values, {np.abs(r_simple)}")
+    print(f"{ticker} produced non-return values, {np.abs(r_simple)}, max{max(np.abs(r_simple))}")
+    r_simple = np.clip(r_simple, -0.99, 1.0)
+  
+    # p (price path) reconstruction if needed downstream:
+  if isinstance(firstP, pd.Series):
+    firstP = float(firstP.iloc[0])
+
+
+
+  elif isinstance(firstP, pd.DataFrame):
+    firstP = float(firstP.iloc[0, 0])
+  else:
+    firstP = float(firstP)
+  
+  # cumR = np.exp(np.cumsum(r)) - 1
+  cumR = np.cumprod(1 + r_simple) - 1
+  explode_test(1000000, cumR, f"{ticker} in runassetSimul")
+  p = firstP * np.exp(np.cumsum(r))
+  # p = firstP * np.cumprod(1 + r)
+  areDeposit = False
+
+
+
+  
+
+  if debug2 == True or debug2 == True:
+    print(f"In runAssetSimul, {ticker} (Yahoo) r = {r}, cumR, p, sigma, fitSigma, time, areDeposit = ", cumR, p, sigma, fitSigma, time, areDeposit)
+  if debug10 == True or debugBus == True:
+    print(f"In runAssetSimul, {ticker}[:50] (Yahoo) r = {r[:50]}, cumR, p, sigma, fitSigma, time, areDeposit = ", cumR[:50], p[:50], sigma[:50], fitSigma[:50], time[:50], areDeposit)
+  if debug10 == True  or debugBus == True:
+    print(f"In runAssetSimul, {ticker} (means) (Yahoo) r mean = {np.nanmean(r)}, eps {np.nanmean(eps)} cumR, p, sigma, fitSigma, time, areDeposit = {np.nanmean(cumR)}, **p** {np.nanmean(p)}, SIGMA {np.nanmean(sigma)}, ***FIT SIGMA {np.nanmean(fitSigma)}, {time[:30]}, {areDeposit}")
+
+  return(r_simple, cumR, p, sigma, fitSigma, time, areDeposit)
+
+
+
+
+
+
+
+#
+# r[t] = mu + eps[t]
+
+
+# eps[t] = sigma[t] * z[t]
+
+
+# sigma[t]**2 = omega + alpha1 * eps[t-1]**2 + beta * sigma[t-1]**2
+
+
+# r, cumR, p, sigma, fitSigma, time, areDeposit = run_monteCarlo(assets["Equities"]['^STOXX'])
+
+
+# print(r)
+
+
+import os
+# folder = r"C:\Users\eogha\OneDrive\Desktop\BT_Plots"
+
+
+
+
+
+
+
+
+
+
+def getGraphs(time, r, cumR, portFitSigma, portSigma, title, areDeposit):
+  x = pd.to_datetime(time)
+  print(f"shape / type of x (time), {x.shape}, {type(x)}")
+
+
+
+
+  plt.xlabel = matplotlib.pyplot.xlabel
+  plt.ylabel = matplotlib.pyplot.ylabel
+  if isinstance(r, list):
+    for p in r:
+      plt.plot(x, p, alpha=alpha)
+  else:
+    plt.plot(x, r)
+  plt.title(f"Simulated {title} Return %")
+  plt.xlabel("Date")
+  plt.ylabel("Simulated Return %")
+  plt.savefig(os.path.join(folder, "Simulated_Ret_Pct.png"), dpi=300)
+  plt.show()
+
+
+
+
+  if isinstance(cumR, list):
+    for p in cumR:
+      plt.plot(x, p, alpha=alpha)
+  else:
+    plt.plot(x, cumR)
+  plt.title(f"Simulated {title} Return")
+  plt.xlabel("Date")
+  plt.ylabel("Simulated Cumulative Returns")
+  plt.savefig(os.path.join(folder, "Simulated_Cum_Ret.png"), dpi=300)
+  plt.show()
+
+
+
+
+  #______Historical vs simulated volatility____
+  #gaurd - ensuring arrays are  proper len
+  if portSigma is not None and portFitSigma is not None and 3 == 2:
+    portFitSigma = np.asarray(portFitSigma)
+
+
+    if portFitSigma.size == 0:
+      print("Woah hang on, fit sigma array is empty!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+      histVol = np.array([])
+    else:
+      histVol = portFitSigma[-500:]
+
+
+    simHorizon = 300
+
+
+    if isinstance(portSigma, list):
+      for p in portSigma:
+        if p.size == 0:
+          print("Woah hang on, sim sigma array is empty!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+          futureVol = np.array([])
+        else:
+          futureVol = p[:simHorizon]
+
+
+        if len(histVol) == 0:
+          print("HistVol = Empty")
+        else:
+          histIndex = x[-len(histVol):]
+          plt.plot(histIndex, histVol, alpha=alpha) # , label=f"Historical {title} GARCH Volatility"
+          plt.xlabel("Date")
+          plt.ylabel("Volatility")
+
+
+
+
+        if len(futureVol) > 0:
+          futureStart = x[-1] + pd.Timedelta(days=1)
+          futureIndex = pd.date_range(start=futureStart, periods=len(futureVol), freq='B')
+          plt.plot(futureIndex, futureVol) # , label=f"Simulated {title} Future Volatility"
+
+
+    else:
+      portSigma = np.asarray(portSigma)
+
+
+      if portSigma.size == 0:
+        print("Woah hang on, sim sigma array is empty!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        futureVol = np.array([])
+      else:
+        futureVol = portSigma[:simHorizon]
+
+
+      if len(histVol) == 0:
+        print("HistVol = Empty")
+      else:
+        histIndex = x[-len(histVol):]
+        plt.plot(histIndex, histVol) # label=f"Historical {title} GARCH Volatility"
+        plt.xlabel("Date")
+        plt.ylabel("Volatility")
+
+
+
+
+      if len(futureVol) > 0:
+        futureStart = x[-1] + pd.Timedelta(days=1)
+        futureIndex = pd.date_range(start=futureStart, periods=len(futureVol), freq='B')
+        plt.plot(futureIndex, futureVol) # , label=f"Simulated {title} Future Volatility"
+    plt.title(f"Historical vs Simulated {title} Volatility")
+    plt.xticks(rotation=45)
+    plt.savefig(os.path.join(folder, "Vol_Comparision2.png"), dpi=300)
+    # plt.legend()
+    plt.show()
+
+
+
+
+
+
+#________Actually running multiple assets in portfolio__________
+# ______________ Actual Monte Carlo run _______
+
+
+
+def applyCorrelationModifer(
+      fullCorr,
+      allTickersOrdered,
+      assets,
+      inputParameters):
+  
+  tickerToClass = {}
+  for assetClass, tickers in assets.items():
+    for ticker in tickers:
+        tickerToClass[ticker] = assetClass
+  mode = inputParameters["Correlation Modifier"]["Mode"]
+  fullCorrInitial = fullCorr.copy()
+  fullCorr = fullCorrInitial.copy()
+  n = fullCorr.shape[0]
+  if mode == "Global":
+    scalar = inputParameters["Correlation Modifier"]["Global Scalar"]
+    if useBlending:
+        if scalar < 1.0:
+            # Decrease correlation: Blend towards Identity Matrix (0 correlation)
+            weight = 1.0 - scalar  # e.g., 0.9 scalar means 10% weight towards Identity
+            target_matrix = np.eye(n)
+            fullCorr = (1.0 - weight) * fullCorr + weight * target_matrix
+            
+        elif scalar > 1.0:
+            # Increase correlation: Blend towards Matrix of 1s (perfect correlation)
+            weight = scalar - 1.0  # e.g., 1.1 scalar means 10% weight towards Perfect
+            weight = min(weight, 0.99) #
+            target_matrix = np.ones((n, n))
+            fullCorr = (1.0 - weight) * fullCorr + weight * target_matrix
+    else:
+        scalar = inputParameters["Correlation Modifier"]["Global Scalar"]
+        mask = ~np.eye(fullCorr.shape[0], dtype=bool)
+
+        fullCorr[mask] *= scalar 
+  elif mode == "AssetClass" or mode == "assetClass":
+    blah = 1
+    # fullCorr = fullCorrInitial
+    try:
+      for i, ticker_i in enumerate(allTickersOrdered):
+        for j, ticker_j in enumerate(allTickersOrdered):
+            class_i = tickerToClass[ticker_i]
+            class_i_modifer = inputParameters["Correlation Modifier"]["assetClassScalars"].get(class_i, 1.0)
+
+            class_j = tickerToClass[ticker_j]
+            class_j_modifer = inputParameters["Correlation Modifier"]["assetClassScalars"].get(class_j, 1.0)
+            # modifer = max(class_j_modifer, class_i_modifer) / 2
+            modifier = (
+                class_i_modifer +
+                class_j_modifer
+            ) / 2
+            fullCorr[i, j] *= modifier
+    except Exception:
+       raise Exception
+  # fullCorr = np.clip(fullCorr, -0.999, 0.999)
+  mask = ~np.eye(fullCorr.shape[0], dtype=bool)
+
+  fullCorr[mask] = np.clip(
+      fullCorr[mask],
+      -0.999,
+      0.999
+  )
+  eigvals = np.linalg.eigvalsh(fullCorr)
+
+  if np.min(eigvals.real) < 0:
+      if debugCorrelation:
+        print("Before repair:")
+        print("Mean corr =", np.mean(fullCorr[np.triu_indices_from(fullCorr,1)]))
+        print("Min eig =", np.linalg.eigvalsh(fullCorr).min())
+      shift = -np.min(eigvals.real) + 1e-6
+      fullCorr += (shift) * np.eye(fullCorr.shape[0])
+      d = 1.0 / np.sqrt(np.diag(fullCorr))
+      fullCorr = fullCorr * np.outer(d, d)
+      if debugCorrelation:
+        print("In applyCorrelationModifer:")
+        print("After repair:")
+        print("Mean corr =", np.mean(fullCorr[np.triu_indices_from(fullCorr,1)]))
+        print("Min eig =", np.linalg.eigvalsh(fullCorr).min())
+        print("Repair shift =", shift)
+        if mode == "Global":
+           print(f"HEY: scalar is {scalar}, globally applied.")
+        assert np.allclose(np.diag(fullCorr), 1.0, atol=1e-10
+    )
+  # np.fill_diagonal(fullCorr, 1.0)
+  # print("\nScenario:", scenario_name)
+  if debugCorrelation:
+      print("In applyCorrelationModifer:")
+      print(
+          "Mean corr:",
+          np.mean(fullCorr[np.triu_indices_from(fullCorr, k=1)])
+      )
+
+      print(
+          "Min eigenvalue:",
+          np.linalg.eigvalsh(fullCorr).min()
+      )
+      print("Mean corr:",
+      np.mean(fullCorr[np.triu_indices_from(fullCorr,1)]))
+
+      print("Min corr:", np.min(fullCorr))
+      print("Max corr:", np.max(fullCorr))
+
+      # print("Min eig:", np.linalg.eigvalsh(fullCorr).min())
+  return fullCorr
+
+
+  
+
+
+def runPort(
+    coeffsDict, assetWeights, fullCorr, allTickersOrdered, assetsCompleted, corrAbleClasses, assetsYahoo,
+    assets, households, time, returnsDict, inputParameters, chunk_idx=None, master_seed=None, path_num=None, busEpsScalar=1.1, alphaBus=None, df_t=None, useCholesky=False):
+
+  def _addHouseholdsZeros(portRet):
+    for household in assetWeights:
+      if household not in portRet:
+        portRet[household] = np.zeros(len(time))
+    return portRet
+
+
+  def _addHouseholdsEmpty(portRet):
+    for household in assetWeights:
+      if household not in portRet:
+        portRet[household] = []
+    return portRet
+
+
+  def _addHouseholdsEmptyDict(portRet):
+    for household in assetWeights:
+      if household not in portRet:
+        portRet[household] = {}
+    return portRet
+
+  
+  portRet = {}
+  portCumR = {}
+  portSigma = {}
+  portFitSigma = {}
+  portRet = _addHouseholdsZeros(portRet)
+  portCumR = _addHouseholdsZeros(portCumR)
+  portSigma = _addHouseholdsZeros(portSigma)
+  portFitSigma = _addHouseholdsZeros(portFitSigma)
+  zTotal = []
+  zMeans = []
+  zStds = []
+  assetLevelZ = []
+  classLevelZmeans = []
+  commonZ = np.random.normal(loc=0.0, scale=1, size=len(time))
+
+
+  assetReturnPaths = {} #asset class, ticker -> r_t
+  assetSigmaPaths = {}
+
+
+
+
+
+
+  for household in assetWeights:
+    assetReturnPaths[household] = {}
+    for assetClass in assetsCompleted:
+      assetReturnPaths[household][assetClass] = {}
+      for asset in assetsCompleted[assetClass]:
+        assetReturnPaths[household][assetClass][asset] = {}
+  for household in assetWeights:
+    assetSigmaPaths[household] = {}
+    for assetClass in assetsCompleted:
+      assetSigmaPaths[household][assetClass] = {}
+      for asset in assetsCompleted[assetClass]:
+        assetSigmaPaths[household][assetClass][asset] = {}
+
+
+  
+  if master_seed == None:
+     master_seed = 42
+  path_id = path_num + chunk_idx
+  local_seed = path_id + master_seed
+  rng = np.random.default_rng(local_seed)
+  if debugCorrelation:
+    print(f"In path {path_id}, local seed is {local_seed}")
+    print("fullCorr.shape", fullCorr.shape)
+    print("len(allTickersOrdered", len(allTickersOrdered))
+    assert fullCorr.shape[0] == len(allTickersOrdered)
+
+  
+
+  if useCholesky:
+      L = np.linalg.cholesky(fullCorr)
+      nAssets = L.shape[0]
+      uncorrZ = rng.normal(0, 1, size=(nAssets, (len(time))))
+
+        
+      if debug2 == True:
+        print("uncorrZ is ", uncorrZ)
+      # uncorrZ = studentT.rvs(df=4, size=len(time))
+      # print("L shape", L.shape, "uncorrZ", uncorrZ.shape)
+      zCorrelated = L @ uncorrZ
+  else:
+          
+      # =======================================
+      #  RUNNING STUDENT T COPULA 
+      # ======================================
+      nAssets = fullCorr.shape[0]
+      if df_t == None:
+          df_t = 5 # finance norm 
+      # df_t = df_t # degrees of freedom (lower = fat tail, more crashes)
+      if debugCorrelation:
+        print(f"in runPort, just before mv_t_samples, np.diag(fullCorr) {np.diag(fullCorr)}")
+        print("Avg corr:", np.mean(fullCorr[np.triu_indices_from(fullCorr, 1)])
+)
+
+        print(
+            "First eigenvalues:", np.sort(np.linalg.eigvalsh(fullCorr))[:5]
+        )
+      # Generating multivariate student-t samples from correlation matrix
+      # mv_t_samples = multivariate_t.rvs(loc=np.zeros(nAssets), shape=fullCorr, df=df_t, size=len(time), random_state=local_seed).T # transposed => nassets, len(time)
+      uncorrZ = rng.normal(0, 1, size=(nAssets, (len(time))))
+      w_chi2 = rng.chisquare(df_t, size=len(time)) # manually generating chi-square distrubution for common rng
+      L = np.linalg.cholesky(fullCorr)
+      z_corr = L @ uncorrZ
+      mv_t_samples = z_corr * np.sqrt(df_t / w_chi2)
+      if debugCorrelation:
+        sample_corr = np.corrcoef(mv_t_samples)
+
+        print(
+              "Sample corr mean (mv t samples):",
+              np.mean(
+                  sample_corr[
+                      np.triu_indices_from(sample_corr, k=1)
+                  ]
+              )
+          )
+        
+
+      u_samples = studentT.cdf(mv_t_samples, df=df_t) # convert to Uniform(0,1) with univariate Studet-t CDF
+
+
+      zCorrelated = norm.ppf(u_samples) # convert to standard normal N(0,1) marginals using normap ppf. Hence, now Garch shocks with heavy-tail dependence.
+  # Prevent absolute extremes (e.g., infinity) from floating point rounding
+  zCorrelated = np.clip(zCorrelated, -8.0, 8.0)
+  if debugCorrelation:
+    sample_corr_z = np.corrcoef(zCorrelated)
+    print(
+          "Sample corr mean (zCorrelated):",
+          np.mean(
+              sample_corr_z[
+                  np.triu_indices_from(sample_corr_z, k=1)
+              ]
+          )
+      )
   if debug2 == True:
     print("zCorrelated is ", zCorrelated)
   assetId = 0
   df_zCorrelated = pd.DataFrame(zCorrelated, index=allTickersOrdered)
-  if debugVol3:
-    print(f"zCorrelated shape: {zCorrelated.shape}")
-    print(f"Mean correlation of zCorrelated: {np.nanmean(np.corrcoef(zCorrelated))}")
-    print(f"Std of zCorrelated across paths: {np.nanstd(zCorrelated, axis=1).mean()}")
+  try:
+    if debugVol3 or debugCorrelation or debug4:
+      print(f"zCorrelated shape: {zCorrelated.shape}")
+      print(f"Mean correlation of zCorrelated: {np.nanmean(np.corrcoef(zCorrelated))}")
+      print(f"Std of zCorrelated across paths: {np.nanstd(zCorrelated, axis=1).mean()}")#
+  except:
+    print("if debugVol3 or debugCorrelation or debug4: failed")
 
+  if debugCorrelation:
+    print("zCorrelated overall mean", np.mean(zCorrelated))
+    print("zCorrelated overall std", np.std(zCorrelated))
+
+    per_asset_mean = np.mean(zCorrelated, axis=1)
+    per_asset_std = np.std(zCorrelated, axis=1)
+
+    print("asset mean range",
+          per_asset_mean.min(),
+          per_asset_mean.max())
+
+    print("asset std range",
+          per_asset_std.min(),
+          per_asset_std.max())
+  
   for assetClass in assets:
     if assetClass in assetsYahoo or assetClass in assetsCompleted:
       if debug == True:
@@ -7128,10 +6970,11 @@ def runPort(
           # else:
           #     print(f"Warning: {ticker} fallback to independent noise.")
           #     z = np.random.normal(0, 1, size=len(time))
-          if (not useIndependentNoise and df_zCorrelated is not None and ticker in df_zCorrelated.index):
+          if (df_zCorrelated is not None and ticker in df_zCorrelated.index):
                 z = df_zCorrelated.loc[ticker].values[:len(time)]
+                # chunk_idx, path_id
           else:
-                z = np.random.normal(0, 1, size=len(time))
+                z = rng.normal(0, 1, size=len(time))
                 print(f"Warning: {ticker} fallback to independent noise.")
           # if assetId >= zCorrelated.shape[0]:
           #   print(f"asset {ticker}'s index {assetId} is out of bounds for correlated assets, so is probably property / deposits")
@@ -7155,7 +6998,7 @@ def runPort(
             if ticker == 'Land Other':
               print(f"z with {ticker} before runAssetSimul is: {z}")
             print(f"Just before runAssetSimul, ticker: {ticker}, assetClass: {assetClass}, z len {len(z)} z: {z}")
-          r, cumR, p, sigma, fitSigma, t, areDeposit = runAssetSimul(ticker, z, coeffsDict, assetWeights, assets, time, busEpsScalar=busEpsScalar, alphaBus=alphaBus)
+          r, cumR, p, sigma, fitSigma, t, areDeposit = runAssetSimul(ticker, z, coeffsDict, assetWeights, assets, time, rng=rng, busEpsScalar=busEpsScalar, alphaBus=alphaBus)
           if isinstance(r, pd.Series):
                 r = r.values
           if isinstance(sigma, pd.Series):
@@ -7164,7 +7007,7 @@ def runPort(
               fitSigma = fitSigma.values
 
           # Trim/pad to target length
-          targetLen = len(time) - 2
+          targetLen = len(time) 
           if len(r) > targetLen:
               r = r[:targetLen]
               sigma = sigma[:targetLen]
@@ -7270,8 +7113,8 @@ def runPort(
               print(f" in portRun, [portCumR[household]] = ", portCumR[household])
             returnsDict[assetClass][household][ticker] = r
             #fixing fitsigma
-            targetLen = len(time) - 2
-            datesIndex = pd.to_datetime(time[2:]) # target date index
+            targetLen = len(time) 
+            datesIndex = pd.to_datetime(time) # target date index
 
 
             if isinstance(fitSigma, np.ndarray) != True:
@@ -7624,7 +7467,9 @@ def runPort(
 
 
 
-def runMonteCarloReal(N, sampleStep, coeffsDict, assetWeights, assetsCompleted, corrAbleClasses, households, time, returnsDict, inputParameters, busEpsScalar=1.1, alphaBus=None):
+def runMonteCarloReal(N, sampleStep, coeffsDict, fullCorr, allTickersOrdered, assetWeights, assetsCompleted, assetsYahoo, corrAbleClasses, households, 
+                      time, returnsDict, inputParameters, chunk_idx=None, busEpsScalar=1.1, alphaBus=None, master_seed=None):
+  assets = assetsCompleted
   def _pathSummary(path):
     r = path["portRet"]
     summariesByHousehold = {}
@@ -7690,14 +7535,16 @@ def runMonteCarloReal(N, sampleStep, coeffsDict, assetWeights, assetsCompleted, 
   allAssetReturnPaths = []
   allAssetSigmaPaths = []
   portFitSigma = None
-
+  useCholesky = inputParameters["Overall"]["useCholesky"]
+  df_t = inputParameters["Overall"]["df_t"]
 
   for i in range(N):
     # print("--- DEBUGGING SHIFT ---")
     # print(f"time type: {type(time)}, length: {len(time)}")
     # print(f"First few elements of time: {time[:3] if hasattr(time, '__getitem__') else 'N/A'}")
     # print(f"returnsDict type: {type(returnsDict)}, length: {len(returnsDict)}")
-    path = runPort(coeffsDict, assetWeights, assetsCompleted, corrAbleClasses, assetsYahoo, assets, households, time, returnsDict, inputParameters, busEpsScalar=busEpsScalar, alphaBus=alphaBus)
+    path = runPort(coeffsDict, assetWeights, fullCorr, allTickersOrdered, assetsCompleted, corrAbleClasses, assetsYahoo, assets, households, time, returnsDict, 
+                   inputParameters, chunk_idx=chunk_idx, master_seed=master_seed, path_num=i, busEpsScalar=busEpsScalar, alphaBus=alphaBus, useCholesky=useCholesky, df_t=df_t)
     summaries.append(_pathSummary(path)) # Append dict of summaries
     allPathsPortCumR.append(path["portCumR"])
     if debug2 == True:
@@ -7830,9 +7677,9 @@ def runMonteCarloReal(N, sampleStep, coeffsDict, assetWeights, assetsCompleted, 
 
 # mc = runMonteCarloReal(N=200, sampleStep=1)
 
-def runChunks(inputParameters, coeffsDict, assetWeights, assets, assetsCompleted, assetsYahoo,
+def runChunks(inputParameters, coeffsDict, fullCorr, allTickersOrdered, assetWeights, assets, assetsCompleted, assetsYahoo,
               corrAbleClasses, households,
-              time, returnsDict, folder, V_num, busEpsScalar=1.1, alphaBus=None, testOneChunk=True):
+              time, returnsDict, folder, V_num, busEpsScalar=1.1, alphaBus=None, testOneChunk=True, master_seed=None):
   totalPaths = inputParameters['Chunks']['totalPaths']#5000
   chunkSize = inputParameters['Chunks']['chunkSize']
   daysPerYear = inputParameters["Overall"]["daysPerYear"]
@@ -7927,15 +7774,28 @@ def runChunks(inputParameters, coeffsDict, assetWeights, assets, assetsCompleted
     nChunk = end - start
     if debugChunk == True:
       print(f"Running Monte Carlo Chunk {start} to {end - 1}, {nChunk} paths")
+
+
     if nChunk == 0:
       # continue
       break
+    
+    chunk_idx = start 
+    if master_seed == None:
+       master_seed = 42
+    # chunk_seed = master_seed + chunk_idx
+    # np.random.seed(chunk_seed)
 
+    # rng = np.random.default_rng(chunk_seed)
+    # Z_chunk = rng.standard_normal(
+    # (chunkSize, T, len(assetsCompleted))
+# )
     try:
       chunkResData = runMonteCarloReal(
-          N=nChunk, sampleStep=4, coeffsDict=coeffsDict, assetWeights=assetWeights,
-          assetsCompleted=assetsCompleted, corrAbleClasses=corrAbleClasses,
-          households=households, time=time, returnsDict=returnsDict, inputParameters=inputParameters, busEpsScalar=busEpsScalar, alphaBus=alphaBus)
+          N=nChunk, sampleStep=4, coeffsDict=coeffsDict, fullCorr=fullCorr, allTickersOrdered=allTickersOrdered, assetWeights=assetWeights,
+          assetsCompleted=assetsCompleted, assetsYahoo=assetsYahoo, corrAbleClasses=corrAbleClasses,
+          households=households, time=time, returnsDict=returnsDict, inputParameters=inputParameters, busEpsScalar=busEpsScalar, 
+          alphaBus=alphaBus, chunk_idx=chunk_idx, master_seed=master_seed,)
     except ValueError as e:                                                                 #assetsCompleted, corrAbleClasses, households, time, returnsDict,
         print(f"ERROR in runMonteCarloReal at chunk {start}-{end}")
         print(f"Error: {e}")
@@ -8359,7 +8219,7 @@ def getGraphs():
 
 
 
-  x = pd.to_datetime(time[2:])
+  x = pd.to_datetime(time)
   plottingList = {}
   currentPath = []
   currentHousehold = []
@@ -8498,7 +8358,7 @@ def getGraphs():
 
 
   def houseCumSampleWithSigmaBanded(time, graphFigSize, assetRes, households):
-    x = pd.to_datetime(time[2:])
+    x = pd.to_datetime(time[:])
     sampleSummaryRows = []
     # sigma bands removed
     plt.figure(figsize=graphFigSize)
@@ -8913,7 +8773,7 @@ def get_comparable_results(metric_results, name, inputParameters, metric_config,
 #       "scenarios": scenarios, 
 #       "inputParameters": inputParameters}
 
-def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=None, metric_config=None):
+def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=None, metric_config=None, nPaths=None, chunkSize=None):
   
   
   import traceback
@@ -8970,10 +8830,16 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
       traceback.print_exc()
       stackprinter.show(style='lightbg')
       raise
+
+  cfg = copy.deepcopy(cfg)
+  if nPaths != None:
+    cfg["inputParameters"]["Chunks"]["totalPaths"] = nPaths
+  if chunkSize != None:
+    cfg["inputParameters"]["Chunks"]["chunkSize"] = chunkSize
   # Step 2: getting data
   try:
         print("=== COEFF FITTING ===")
-        coeffsDict, returnsDict = getCoeffs(cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], cfg["assetWeights"], cfg["households"], cfg["time"], cfg["corrAbleClasses"], {}, inputParameters)
+        coeffsDict, returnsDict, fullCorr, allTickersOrdered = getCoeffs(cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], cfg["assetWeights"], cfg["households"], cfg["time"], cfg["corrAbleClasses"], {}, inputParameters)
         # returns_array = np.array(list(returnsDict.values()))
         # excessDays = np.sum(np.abs(returns_array) > 0.5)
         # total_days = len(returnsDict)
@@ -8996,7 +8862,8 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
     t0 = tm.perf_counter()
     print("=== CHUNK SIMULATION ===")
     # if debugLocal: V_num = "debug"
-    aggres = runChunks(inputParameters, coeffsDict, cfg["assetWeights"], cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], cfg["corrAbleClasses"], cfg["households"], cfg["time"], returnsDict, cfg["folder"], V_num, testOneChunk)
+    aggres = runChunks(inputParameters, coeffsDict, fullCorr, allTickersOrdered, cfg["assetWeights"], cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], 
+                       cfg["corrAbleClasses"], cfg["households"], cfg["time"], returnsDict, cfg["folder"], V_num, testOneChunk, master_seed=None)
     aggres
   except Exception:
     print(f"FAILED IN RUN CHUNKS")
@@ -9045,7 +8912,7 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
       print("=== PORTFOLIO AGGREGATION ===")
 
       aggRes = portfolioAggregation(
-          assetWeights=assetWeights,
+          assetWeights=cfg["assetWeights"],
           fullSavedAssetRes=assetResults,
           households=cfg["households"],
           assetsCompleted=cfg["assetsCompleted"]
@@ -9297,18 +9164,24 @@ def run_comparable_result_analysis(comparable_results):
     reportDF = comparisionRow[['Scenario', 'Type', 'muScalar', 'volScalar', 'Value']].copy()
     reportDF = reportDF.rename(columns={'Value': item_name_reporting})
     reportDF['Δ'] = reportDF[item_name_reporting] - baseline_val
-    reportDF['%Δ'] = (reportDF[item_name_reporting] - baseline_val) / baseline_val
+    reportDF['%Δ'] = (reportDF[item_name_reporting] - baseline_val) / (0.5 * (abs(reportDF[item_name_reporting]) + abs(baseline_val)) + 1e-12) 
 
     pct_delta_input = np.where(
        reportDF['Type'] == 'returns', reportDF['muScalar'] - 1.0,
        np.where(reportDF['Type'] == 'volatility', reportDF['volScalar'] - 1.0, 0)
     )
     
+    valid = reportDF['Type'].isin(['returns', 'volatility'])
+    # reportDF['Elasticity'] = np.where(
+    #    pct_delta_input != 0.0,
+    #    reportDF['%Δ'] / pct_delta_input,
+    #    np.nan # baseline row = NaN bc: obvs.
+    # )
     reportDF['Elasticity'] = np.where(
-       pct_delta_input != 0.0,
-       reportDF['%Δ'] / pct_delta_input,
-       np.nan # baseline row = NaN bc: obvs.
-    )
+      valid & (pct_delta_input != 0),
+      reportDF['%Δ'] / pct_delta_input,
+      np.nan
+      )
     reportDF['is_baseline'] = reportDF['Scenario'] == 'baseline'
     reportDF = reportDF.sort_values(by="is_baseline", ascending=False).drop(columns='is_baseline')
     if 'graph_dir' in globals():
@@ -9331,8 +9204,8 @@ import traceback
 import stackprinter
 import time as tm
 import copy   
- 
-def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOneChunk=False, selection=None, sensitivityResults=None):
+
+def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOneChunk=False, selection=None, sensitivityResults=None, nPaths=None, chunkSize=None, master_seed=None):
 
   
 
@@ -9351,58 +9224,23 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
       if scenarios is None:
          scenarios = cfg["scenarios"]
         
-      # if inputParameters == None:
-      #   (
-      #       assetsCompleted,
-      #       assetsYahoo,
-      #       assets,
-      #       assetWeights,
-      #       households,
-      #       time,
-      #       folder,
-      #       chunkFolder,
-      #       fullSavedAssetRes,
-      #       corrAbleClasses,
-      #       metric_config_imported,
-      #       chunk_dir,
-      #       graph_dir,
-      #       data_dir,
-      #       scenariosImported,
-      #       inputParameters
 
-
-      #   ) = setup()
-      #   if scenarios == None:
-      #     scenarios = scenariosImported
-      #   if metric_config == None:
-      #     metric_config = metric_config_imported
-      # else:
-      #   (
-      #       assetsCompleted,
-      #       assetsYahoo,
-      #       assets,
-      #       assetWeights,
-      #       households,
-      #       time,
-      #       folder,
-      #       chunkFolder,
-      #       fullSavedAssetRes,
-      #       corrAbleClasses
-      #   ) = setup()
-      
-      
 
   except Exception:
       print("FAILED IN SETUP")
       traceback.print_exc()
       stackprinter.show(style='lightbg')
       raise
-  
+  cfg = copy.deepcopy(cfg)
+  if nPaths != None:
+    cfg["inputParameters"]["Chunks"]["totalPaths"] = nPaths
+  if chunkSize != None:
+    cfg["inputParameters"]["Chunks"]["chunkSize"] = chunkSize
   # Step 2: getting data
   try:
         print("=== COEFF FITTING ===")
         # coeffsDict, returnsDict = getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, time, corrAbleClasses, {}, inputParameters)
-        coeffsDict, returnsDict = getCoeffs(cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], cfg["assetWeights"], cfg["households"], cfg["time"], cfg["corrAbleClasses"], {}, inputParameters)
+        coeffsDict, returnsDict, fullCorr, allTickersOrdered = getCoeffs(cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], cfg["assetWeights"], cfg["households"], cfg["time"], cfg["corrAbleClasses"], {}, inputParameters)
         
         # returns_array = np.array(list(returnsDict.values()))
         # excessDays = np.sum(np.abs(returns_array) > 0.5)
@@ -9428,30 +9266,54 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
 
   filtered = [
      item for item in scenarios if (selection == "all" and item.get("type") in allTypes) 
-     or (item.get("type") == selection)
+     or (item.get("name") in selection)
   ]
   for scenario in filtered:
     scenarioType = scenario.get("type").lower()
     scenarioName = scenario.get("name")
-    base_coeffs = copy.deepcopy(coeffsDict)
+    # base_coeffs = copy.deepcopy(coeffsDict)
     inputParametersInitial = copy.deepcopy(inputParameters)
-    scenario_coeffs = copy.deepcopy(base_coeffs)
+    scenario_coeffs = copy.deepcopy(coeffsDict)
+    print(f"\n>>> APPLYING SCENARIO: {scenarioName} <<<")
+    
+    if scenarioType == "correlation":
+       
+      inputParametersInitial["Correlation Modifier"]["Global Scalar"] = scenario.get("Global Scalar")
+      inputParametersInitial["Correlation Modifier"]["Mode"] = scenario.get("Mode")
+      inputParametersInitial["Correlation Modifier"]["assetClassScalars"] = scenario.get("assetClassScalars", inputParametersInitial["Correlation Modifier"].get("assetClassScalars"))
+    elif scenarioType == "df_t":
+      inputParametersInitial["Overall"]["df_t"] = scenario.get("df_t")
+    elif scenarioType == 'business_wealth':
+      busParams = inputParametersInitial["Busniess Equity"]
+      for key, value in scenario.items():
+         if key in busParams:
+            inputParametersInitial["Busniess Equity"][key] = value
+        #  inputParametersInitial["Busniess Equity"][heading] = scenario.get(heading, inputParametersInitial["Busniess Equity"][heading])
+
+    if scenarioType in ["correlation", "business_wealth"]:
+        # recalculate getCoeffs because underlying data/matrices changed
+        scenario_coeffs, _, scenario_fullCorr, scenario_tickers = getCoeffs(
+            cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], 
+            cfg["assetWeights"], cfg["households"], cfg["time"], 
+            cfg["corrAbleClasses"], {}, inputParametersInitial
+        )
+    else:
+        # Re-use baseline matrices for speed
+        scenario_coeffs = scenario_coeffs #copy.deepcopy(coeffsDict)
+        scenario_fullCorr = fullCorr
+        scenario_tickers = allTickersOrdered
+
     if scenarioType == "returns" or scenarioType == "volatility":
        
-       muScalar = scenario.get("muScalar", 1.0)
-       volScalar = scenario.get("volScalar", 1.0)
-       scenario_coeffs = applyReturnShock(coeffsDict=coeffsDict, muScalar=muScalar, volScalar=volScalar)
-    elif scenarioType == "correlation":
-       
-       inputParametersInitial["Correlation Modifier"]["Global Scalar"] = scenario.get("Global Scalar")
-       inputParametersInitial["Correlation Modifier"]["Mode"] = scenario.get("Mode")
-       inputParametersInitial["Correlation Modifier"]["assetClassScalars"] = scenario.get("assetClassScalars", inputParametersInitial["Correlation Modifier"].get("assetClassScalars"))
+      muScalar = scenario.get("muScalar", 1.0)
+      volScalar = scenario.get("volScalar", 1.0)
+      scenario_coeffs = applyReturnShock(coeffsDict=coeffsDict, muScalar=muScalar, volScalar=volScalar)
     # Step 2: running baseline
     try:
       t0 = tm.perf_counter()
       print("=== CHUNK SIMULATION ===")
       # if debugLocal: V_num = "debug"
-      aggres = runChunks(inputParametersInitial, scenario_coeffs, cfg["assetWeights"], cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], cfg["corrAbleClasses"], cfg["households"], cfg["time"], returnsDict, cfg["folder"], V_num=f"{V_num}_{scenarioName}", testOneChunk=testOneChunk)
+      aggres = runChunks(inputParametersInitial, scenario_coeffs, scenario_fullCorr, scenario_tickers, cfg["assetWeights"], cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], cfg["corrAbleClasses"], cfg["households"], cfg["time"], returnsDict, cfg["folder"], V_num=f"{V_num}_{scenarioName}", testOneChunk=testOneChunk, master_seed=master_seed)
 
       # aggres = runChunks(inputParametersInitial, scenario_coeffs, assetWeights, assets, assetsCompleted, assetsYahoo, corrAbleClasses, households, time, 
       #                    returnsDict, folder, V_num=f"{V_num}_{scenarioName}", testOneChunk=testOneChunk)
@@ -9468,7 +9330,7 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
 
         assetResults = aggregate_to_asset_paths(
             nTotalPaths=inputParametersInitial["Chunks"]["totalPaths"],
-            V_num=V_num
+            V_num=f"{V_num}_{scenarioName}",
         )
 
     except Exception:
@@ -9523,15 +9385,15 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
   try:
       print("=== GRAPHING ===")
 
-      # runGraphs(
-      #     aggRes=aggRes,
-      #     assetResults=assetResults,
-      #     time=time,
-      #     households=households,
-      #     graph_dir=graph_dir,
-      #     metric_results=metric_results,
-      #     tablesNeeded=True
-      # )
+      runGraphs(
+          aggRes=aggRes,
+          assetResults=assetResults,
+          time=cfg["time"],
+          households=cfg["households"],
+          graph_dir=graph_dir,
+          metric_results=metric_results,
+          tablesNeeded=True
+      )
 
   except Exception:
       print("FAILED IN GRAPHING")
@@ -9548,10 +9410,12 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
 #=====================================
 # main(inputParameters, 8)
 #=====================================
-# baseline_output = main(V_num="baseline_debug2", inputParameters=None, testOneChunk=True)
-# baseline_dict = baseline_output["comparable_results"] 
 
-# comparable_results = runSensitivityTests(inputParameters=None, scenarios=None, metric_config=None, V_num="sensitivityDebug2", testOneChunk=True, selection=None, sensitivityResults=baseline_dict)
+# currentRun = 22
+# baseline_output = main(V_num=f"baseline_debug{currentRun}", inputParameters=None, testOneChunk=True)
+# baseline_dict = baseline_output["comparable_results"] 
+# selection = ['HigherReturns10', "globalHigher10", "SmallCapHeavy"]
+# comparable_results = runSensitivityTests(inputParameters=None, scenarios=None, metric_config=None, V_num=f"sensitivityDebug{currentRun}", testOneChunk=True, selection=None, sensitivityResults=baseline_dict)
 # try:
 #   run_comparable_result_analysis(comparable_results)
 # except Exception:
