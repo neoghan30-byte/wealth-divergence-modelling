@@ -4915,7 +4915,7 @@ from scipy.stats import t as studentT
 # os.environ["TQDM_DISABLE"] = "1"
 debug2 = False
 debug3 = False
-debug4 = True # z
+debug4 = False # z
 debug5 = False #minimal
 debug6 = False #start up
 debug7 = False
