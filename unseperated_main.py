@@ -3820,8 +3820,8 @@ def setup():
           "largeCapTicker": '^125904-USD-STRD'
       },
       "Chunks": {
-          "totalPaths": 500,
-          "chunkSize": 50,
+          "totalPaths": 10000,
+          "chunkSize": 100,
       },
       "Correlation Modifier": {
         "Global Scalar": 1.0,

@@ -3,7 +3,7 @@ import traceback
 import stackprinter
 
 def main2():
-    currentRun = 26
+    currentRun = 27
 
     baseline_output = m.main(
         V_num=f"baseline_debug{currentRun}",
@@ -13,7 +13,7 @@ def main2():
 
     baseline_dict = baseline_output["comparable_results"]
 
-    selection = ['HigherReturns10', "globalHigher10", "SmallCapHeavy"]
+    # selection = ['HigherReturns10', "globalHigher10", "SmallCapHeavy"]
 
     comparable_results = m.runSensitivityTests(
         inputParameters=None,
@@ -21,8 +21,9 @@ def main2():
         metric_config=None,
         V_num=f"sensitivityDebug{currentRun}",
         testOneChunk=False,
-        selection=selection,
-        sensitivityResults=baseline_dict
+        selection=None,
+        sensitivityResults=baseline_dict,
+        nPaths=5000
     )
 
     try:
