@@ -302,6 +302,7 @@ def find_value_location(obj, target_val, path=""):
             return f"{path}[Index/Row: {indices[0]}]"
 
     return None
+
 def explode_test(maxAllowed, Object, file_location="Code Somewhere"):
       
       object_searched = Object
@@ -7676,7 +7677,7 @@ def runMonteCarloReal(N, sampleStep, coeffsDict, fullCorr, allTickersOrdered, as
       }
 
 
-
+  path = None
   summaries = [] # This will now be a list of dicts (one dict of summaries per household per path)
   samplePathsPortRet = []
   samplePathsPortCumR = []
@@ -7813,6 +7814,8 @@ def runMonteCarloReal(N, sampleStep, coeffsDict, fullCorr, allTickersOrdered, as
   # print(df)
   if debug2 == True:
     print(f" in mc finished , [samplePathsPortCumR] = ", samplePathsPortCumR)
+  if path == None:
+     path = {}
   return {
       "summaries": summaries,
       "samplePathsPortRet": samplePathsPortRet,
@@ -7824,7 +7827,7 @@ def runMonteCarloReal(N, sampleStep, coeffsDict, fullCorr, allTickersOrdered, as
       "meanPathCumR": meanPathCumR, # Now a dict of arrays
       "meanPathRet": meanPathRet,   # Now a dict of arrays
       "meanPathSigma": meanPathSigma, # Now a dict of arrays
-      "portFitSigma": path["portFitSigma"], # This will be a dict of arrays (last path's fitSigma)
+      "portFitSigma": path.get("portFitSigma", None), # This will be a dict of arrays (last path's fitSigma)
       # "allZmeans": allZmeans,
       # "allZMeanofstds": allZMeanofstds,
       # "allZtotal": allZtotal,
@@ -9130,32 +9133,9 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
 
       # runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results, tablesNeeded=True, plots_to_generate=None):
   try:
+      
       print("=== ANALYSIS ===")
 
-      metric_results = get_metric_analysis(
-        chunk_folder=cfg["chunkFolder"],
-        coeffs_dict=coeffsDict,
-        assets_completed=cfg["assetsCompleted"],
-        asset_weights=cfg["assetWeights"],
-        households=cfg["households"],
-        time_hist=cfg["time"],
-        V_num=V_num,
-        percentile_bands=inputParameters["percentile_bands"],
-        aggRes = aggRes,  # idk
-        asset_level_res = assetResults
-
-      )
-      print(f"RAM: metric_results {psutil.Process().memory_info().rss / 1024**3:.2f} GB"
-)
-      # print(f"WOOOOO results: {metric_results['results']['house_cum_results']['house_cum_df']}")
-      comparable_results_new = get_comparable_results(
-        metric_results=metric_results,
-        name = "baseline", 
-        inputParameters=inputParameters, 
-        metric_config=metric_config,
-        coeffsDict=coeffsDict,
-        sensitivity_results=comparable_results)
-      print(f"RAM: comparable results {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
       cache_file = Path(data_dir) / f"Aggregated_State_{V_num}.pkl"
       if cache_file.exists():
           print(f"Loading cached analysis: {cache_file}")
@@ -9166,17 +9146,44 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
           aggRes = cached["aggRes"]
           assetResults = cached["assetResults"]
           metric_results = cached["metric_results"]
-          time = cached["time"]
+          # time = cached["time"]
           households = cached["households"]
+          comparable_results_new = cached["comparable_results_new"]
       else:
+          metric_results = get_metric_analysis(
+            chunk_folder=cfg["chunkFolder"],
+            coeffs_dict=coeffsDict,
+            assets_completed=cfg["assetsCompleted"],
+            asset_weights=cfg["assetWeights"],
+            households=cfg["households"],
+            time_hist=cfg["time"],
+            V_num=V_num,
+            percentile_bands=inputParameters["percentile_bands"],
+            aggRes = aggRes,  # idk
+            asset_level_res = assetResults
+
+          )
+          print(f"RAM: metric_results {psutil.Process().memory_info().rss / 1024**3:.2f} GB"
+    )
+          # print(f"WOOOOO results: {metric_results['results']['house_cum_results']['house_cum_df']}")
+          comparable_results_new = get_comparable_results(
+            metric_results=metric_results,
+            name = "baseline", 
+            inputParameters=inputParameters, 
+            metric_config=metric_config,
+            coeffsDict=coeffsDict,
+            sensitivity_results=comparable_results)
+          print(f"RAM: comparable results {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
+      
           print(f"baseline Chunk analysis complete. Saving to cache...")
           with open(cache_file, 'wb') as f:
               pickle.dump({
                   'aggRes': aggRes,
                   'assetResults': assetResults,
                   'metric_results': metric_results,
-                  'time': time,
-                  'households': households
+                  "comparable_results_new": comparable_results_new,
+                  # 'time': time,
+                  'households': cfg["households"]
               }, f)
 
   except Exception:
@@ -9298,8 +9305,15 @@ def flatten_results(comparable_results, drop_raw=True):
         param_type = params.get("type", "baseline")
         mu_scalar = params.get("muScalar", 1.0)
         vol_scalar = params.get("volScalar", 1.0)
-        
+        global_scalar = params.get("Global Scalar", np.nan)
+        corr_mode = params.get("Mode", None)
         std_results = payload.get("standardised_results", {})
+        df_t = params.get("df_t", np.nan)
+        smallBlend = params.get("smallBlend", np.nan)
+        largeBlend = params.get("largeBlend", np.nan)
+        alphaBusRaw = params.get("alphaBusRaw", np.nan)
+        busEpsScalar = params.get("busEpsScalar", np.nan)
+        
         
         # 2. Traverse the metrics tree
         for category, level1_data in std_results.items():
@@ -9327,7 +9341,14 @@ def flatten_results(comparable_results, drop_raw=True):
                                 "Level_1": level1_key,
                                 "Level_2": level2_key,
                                 "Metric": metric_name,
-                                "Value": value
+                                "Value": value,
+                                "GlobalScalar": global_scalar,
+                                "CorrMode": corr_mode,
+                                "smallBlend": smallBlend,
+                                "largeBlend": largeBlend,
+                                "alphaBusRaw": alphaBusRaw,
+                                "busEpsScalar": busEpsScalar,
+                                "df_t": df_t
                             })
                     
                     # 3B. If it's a scalar, its hit the metric level early (e.g., Household -> Metric)
@@ -9344,7 +9365,14 @@ def flatten_results(comparable_results, drop_raw=True):
                             "Level_1": level1_key,
                             "Level_2": None,          # Empty because there is no sub-asset
                             "Metric": level2_key,     # The key itself is the metric (e.g., 'mean')
-                            "Value": metric_data
+                            "Value": metric_data,
+                            "GlobalScalar": global_scalar,
+                            "CorrMode": corr_mode,
+                            "smallBlend": smallBlend,
+                            "largeBlend": largeBlend,
+                            "alphaBusRaw": alphaBusRaw,
+                            "busEpsScalar": busEpsScalar,
+                            "df_t": df_t
                         })
                         
     # Convert to DataFrame
@@ -9356,8 +9384,305 @@ def flatten_results(comparable_results, drop_raw=True):
         
     return df
 
-# def run_sensitivity_metric_analysis(metric)
+def make_sensitivity_tables(comparable_df):
+
+    def pull_metric(category, level1, metric, out_name):
+
+        mask = (
+            (comparable_df["Category"] == category)
+            & (comparable_df["Level_1"] == level1)
+            & (comparable_df["Metric"] == metric)
+        )
+
+        df = comparable_df.loc[
+            mask,
+            [
+                "Scenario",
+                "Type",
+                "muScalar",
+                "volScalar",
+                "GlobalScalar",
+                "CorrMode",
+                "smallBlend",
+                "largeBlend",
+                "alphaBusRaw",
+                "busEpsScalar",
+                "df_t",
+                "Value"
+            ]
+        ].copy()
+
+        return df.rename(columns={"Value": out_name})
+
+    poorName = '0-20'
+    medName = '40-59'
+    richName = '80-100'
+    # -----------------------------
+    # Core outputs
+    # -----------------------------
+
+    gap_df = pull_metric(
+        "gap_results",
+        "80-100 vs 0-20",
+        "mean",
+        "Gap"
+    )
+
+    rich_df = pull_metric(
+        "mean_household_results",
+        "80-100",
+        "terminal",
+        "RichTW"
+    )
+
+    middle_df = pull_metric(
+        "mean_household_results",
+        "40-59",
+        "terminal",
+        "MiddleTW"
+    )
+
+    poor_df = pull_metric(
+        "mean_household_results",
+        "0-20",
+        "terminal",
+        "PoorTW"
+    )
+
+    summary = (
+        gap_df
+        .merge(rich_df[["Scenario", "RichTW"]], on="Scenario")
+        .merge(middle_df[["Scenario", "MiddleTW"]], on="Scenario")
+        .merge(poor_df[["Scenario", "PoorTW"]], on="Scenario")
+    )
+
+    # -----------------------------
+    # Baseline comparison
+    # -----------------------------
+
+    baseline = summary.loc[
+        summary["Scenario"] == "baseline"
+    ]
+
+    if baseline.empty:
+        print("Baseline scenario missing")
+
+    baseline = baseline.iloc[0]
+
+    for col in ["Gap", "RichTW", "MiddleTW", "PoorTW"]:
+
+        baseline_val = baseline[col]
+
+        summary[f"{col}_pct"] = (
+            (summary[col] - baseline_val)
+            /
+            (
+                0.5
+                * (
+                    np.abs(summary[col])
+                    + np.abs(baseline_val)
+                )
+                + 1e-12
+            )
+        )
+
+    pct_delta_input = np.where(
+        summary["Type"] == "returns",
+        summary["muScalar"] - 1.0,
+        np.where(
+            summary["Type"] == "volatility",
+            summary["volScalar"] - 1.0,
+            np.nan
+        )
+    )
+
+    summary["GapElasticity"] = np.where(
+        pct_delta_input != 0,
+        summary["Gap_pct"] / pct_delta_input,
+        np.nan
+    )
+
+    # ==========================================================
+    # RETURNS
+    # ==========================================================
+
+    returns_table = summary[
+        summary["Type"] == "returns"
+    ][[
+        "Scenario",
+        "muScalar",
+        "Gap_pct",
+        "GapElasticity",
+        "RichTW_pct",
+        "MiddleTW_pct",
+        "PoorTW_pct"
+    ]].copy()
+
+    returns_table = returns_table.rename(columns={
+        "muScalar": "Return Scalar",
+        "Gap_pct": "Gap %Δ",
+        "GapElasticity": "Gap Elasticity",
+        "RichTW_pct": f"{richName} TW %Δ",
+        "MiddleTW_pct": f"{medName} TW %Δ",
+        "PoorTW_pct": f"{poorName} TW %Δ"
+    })
+
+    _make_table_pretty(
+        returns_table,
+        "Return Sensitivity",
+        graph_dir
+    )
+
+    # ==========================================================
+    # VOLATILITY
+    # ==========================================================
+
+    vol_table = summary[
+        summary["Type"] == "volatility"
+    ][[
+        "Scenario",
+        "volScalar",
+        "Gap_pct",
+        "GapElasticity",
+        "RichTW_pct",
+        "MiddleTW_pct",
+        "PoorTW_pct"
+    ]].copy()
+
+    vol_table = vol_table.rename(columns={
+        "volScalar": "Vol Scalar",
+        "Gap_pct": "Gap %Δ",
+        "GapElasticity": "Gap Elasticity",
+        "RichTW_pct": f"{richName} TW %Δ",
+        "MiddleTW_pct": f"{medName} TW %Δ",
+        "PoorTW_pct": f"{poorName} TW %Δ"
+    })
+
+    _make_table_pretty(
+        vol_table,
+        "Volatility Sensitivity",
+        graph_dir
+    )
+
+    # ==========================================================
+    # CORRELATION
+    # ==========================================================
+
+    corr_table = summary[
+        summary["Type"] == "correlation"
+    ][[
+        "Scenario",
+        "GlobalScalar",
+        "Gap_pct",
+        "RichTW_pct",
+        "MiddleTW_pct",
+        "PoorTW_pct"
+    ]].copy()
+
+    corr_table = corr_table.rename(columns={
+        "Gap_pct": "Gap %Δ",
+        "RichTW_pct": f"{richName} TW %Δ",
+        "MiddleTW_pct": f"{medName} TW %Δ",
+        "PoorTW_pct": f"{poorName} TW %Δ"
+    })
+
+    _make_table_pretty(
+        corr_table,
+        "Correlation Sensitivity",
+        graph_dir
+    )
+
+    # ==========================================================
+    # BUSINESS WEALTH
+    # ==========================================================
+
+    business_table = summary[
+        summary["Type"] == "business_wealth"
+    ][[
+        "Scenario",
+        "smallBlend",
+        "largeBlend",
+        "alphaBusRaw",
+        "busEpsScalar",
+        "Gap_pct",
+        "RichTW_pct",
+        "MiddleTW_pct",
+        "PoorTW_pct"
+    ]].copy()
+
+    business_table = business_table.rename(columns={
+        "Gap_pct": "Gap %Δ",
+        "RichTW_pct": f"{richName} TW %Δ",
+        "MiddleTW_pct": f"{medName} TW %Δ",
+        "PoorTW_pct": f"{poorName} TW %Δ"
+    })
+
+    _make_table_pretty(
+        business_table,
+        "Business Wealth Sensitivity",
+        graph_dir
+    )
+    # ==========================================================
+    # DF_T / TAIL RISK
+    # ==========================================================
+
+    df_table = summary[
+        summary["Type"] == "df_t"
+    ][[
+        "Scenario",
+        "df_t",
+        "Gap_pct",
+        "RichTW_pct",
+        "MiddleTW_pct",
+        "PoorTW_pct"
+    ]].copy()
+
+    df_table = df_table.sort_values("df_t")
+
+    df_table = df_table.rename(columns={
+        "df_t": "Degrees of Freedom",
+        "Gap_pct": "Gap %Δ",
+        "RichTW_pct": f"{richName} TW %Δ",
+        "MiddleTW_pct": f"{medName} TW %Δ",
+        "PoorTW_pct": f"{poorName} TW %Δ"
+    })
+
+    _make_table_pretty(
+        df_table,
+        "Tail Risk Sensitivity (t-distribution)",
+        graph_dir
+    )
+    returns_table = returns_table.sort_values("Return Scalar")
+    vol_table = vol_table.sort_values("Vol Scalar")
+    corr_table = corr_table.sort_values("GlobalScalar")
+    df_table = df_table.sort_values("Degrees of Freedom")
+    return {
+        "returns": returns_table,
+        "volatility": vol_table,
+        "correlation": corr_table,
+        "business_wealth": business_table,
+        "df_t": df_table
+    }
+
 def run_comparable_result_analysis(comparable_results):
+
+    if isinstance(comparable_results, dict) and "comparable_results" in comparable_results:
+        actual_results = comparable_results["comparable_results"]
+    else:
+        actual_results = comparable_results
+
+    comparable_df = flatten_results(actual_results, drop_raw=True)
+
+    print("\n=== AVAILABLE LABELS IN DATASET ===")
+    print("Categories:", comparable_df['Category'].unique())
+    print("Level_1 Labels:", comparable_df['Level_1'].unique())
+    print("===================================\n")
+
+    tables = make_sensitivity_tables(comparable_df)
+
+    return tables
+# def run_sensitivity_metric_analysis(metric)
+def run_comparable_result_analysis2(comparable_results):
   if isinstance(comparable_results, dict) and "comparable_results" in comparable_results:
         actual_results = comparable_results["comparable_results"]
   else:
@@ -9420,12 +9745,13 @@ def run_comparable_result_analysis(comparable_results):
       _make_table_pretty(reportDF, f"{category}, {item} sensitivty test", graph_dir)
     return reportDF.reset_index(drop=True)
   
-  gap_sensitivty = runComparision('gap_results', '80-100 vs 0-20', 'mean', 'Mean Gap', comparable_df)
-  print(gap_sensitivty)
-  rich_terminal_wealth_sensitivity = runComparision('mean_household_results', '80-100', 'terminal', 'Mean Terminal Wealth', comparable_df)
-  print(rich_terminal_wealth_sensitivity)
-  poor_terminal_wealth_sensitivity = runComparision('mean_household_results', '0-20', 'terminal', 'Mean Terminal Wealth', comparable_df)
-  print(poor_terminal_wealth_sensitivity)
+  
+  # gap_sensitivty = runComparision('gap_results', '80-100 vs 0-20', 'mean', 'Mean Gap', comparable_df)
+  # print(gap_sensitivty)
+  # rich_terminal_wealth_sensitivity = runComparision('mean_household_results', '80-100', 'terminal', 'Mean Terminal Wealth', comparable_df)
+  # print(rich_terminal_wealth_sensitivity)
+  # poor_terminal_wealth_sensitivity = runComparision('mean_household_results', '0-20', 'terminal', 'Mean Terminal Wealth', comparable_df)
+  # print(poor_terminal_wealth_sensitivity)
     #  gap_mean = scenario_df["gap_results"]
      
 
@@ -9592,28 +9918,6 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
 
         # runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results, tablesNeeded=True, plots_to_generate=None):
     try:
-        print("=== ANALYSIS ===")
-
-        metric_results = get_metric_analysis(
-          chunk_folder=cfg["chunkFolder"],
-          coeffs_dict=scenario_coeffs,
-          assets_completed=cfg["assetsCompleted"],
-          asset_weights=cfg["assetWeights"],
-          households=cfg["households"],
-          time_hist=cfg["time"],
-          V_num=f"{V_num}_{scenarioName}",
-          percentile_bands=inputParametersInitial["percentile_bands"],
-          aggRes = aggRes,  # idk
-          asset_level_res = assetResults
-
-        )
-        print(f"RAM: (metric anaylsis) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
-
-        # print(f"WOOOOO results: {metric_results['house_cum_results']['house_cum_df']}")
-        sensitivityResults = get_comparable_results(metric_results, scenarioName, inputParametersInitial, metric_config, scenario_coeffs, sensitivityResults, scenario)
-        # if testOneChunk:
-
-        print(f"RAM: (sensitivity res) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
         cache_file = Path(data_dir) / f"Aggregated_State_{scenarioName}_{V_num}.pkl"
         if cache_file.exists():
             print(f"Loading cached analysis: {cache_file}")
@@ -9624,17 +9928,43 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
             aggRes = cached["aggRes"]
             assetResults = cached["assetResults"]
             metric_results = cached["metric_results"]
-            time = cached["time"]
+            # time = cached["time"]
             households = cached["households"]
+            sensitivityResults = cached["sensitivityResults"]
         else:
+            print("=== ANALYSIS ===")
+
+            metric_results = get_metric_analysis(
+              chunk_folder=cfg["chunkFolder"],
+              coeffs_dict=scenario_coeffs,
+              assets_completed=cfg["assetsCompleted"],
+              asset_weights=cfg["assetWeights"],
+              households=cfg["households"],
+              time_hist=cfg["time"],
+              V_num=f"{V_num}_{scenarioName}",
+              percentile_bands=inputParametersInitial["percentile_bands"],
+              aggRes = aggRes,  # idk
+              asset_level_res = assetResults
+
+            )
+            print(f"RAM: (metric anaylsis) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
+
+            # print(f"WOOOOO results: {metric_results['house_cum_results']['house_cum_df']}")
+            sensitivityResults = get_comparable_results(metric_results, scenarioName, inputParametersInitial, metric_config, scenario_coeffs, sensitivityResults, scenario)
+            # if testOneChunk:
+
+            print(f"RAM: (sensitivity res) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
+            
             print(f"[{scenarioName}] Chunk analysis complete. Saving to cache...")
             with open(cache_file, 'wb') as f:
                 pickle.dump({
                     'aggRes': aggRes,
                     'assetResults': assetResults,
                     'metric_results': metric_results,
-                    'time': time,
-                    'households': households
+                    # "comparable_results_new": comparable_results_new,
+                    # 'time': time,
+                    'households': cfg["households"],
+                    'sensitivityResults': sensitivityResults 
                 }, f)
         #    continue
     except Exception:
@@ -9671,18 +10001,18 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
 # main(inputParameters, 8)
 #=====================================
 
-# currentRun = 122
-# baseline_output = main(V_num=f"baseline_debug{currentRun}", inputParameters=None, testOneChunk=False)
-# baseline_dict = baseline_output["comparable_results"] 
-# selection = ['HigherReturns10', "globalHigher10", "SmallCapHeavy"]
-# comparable_results = runSensitivityTests(inputParameters=None, scenarios=None, metric_config=None, V_num=f"sensitivityDebug{currentRun}", testOneChunk=False, selection=None, sensitivityResults=baseline_dict)
-# try:
-#   run_comparable_result_analysis(comparable_results)
-# except Exception:
-#         print("FAILED IN sensitivty analysis")
-#         traceback.print_exc()
-#         stackprinter.show(style='lightbg')
-#         raise
+currentRun = 126
+baseline_output = main(V_num=f"baseline_debug{currentRun}", inputParameters=None, testOneChunk=True)
+baseline_dict = baseline_output["comparable_results"] 
+selection = ['HigherReturns10', "globalHigher10", "SmallCapHeavy"]
+comparable_results = runSensitivityTests(inputParameters=None, scenarios=None, metric_config=None, V_num=f"sensitivityDebug{currentRun}", testOneChunk=True, selection=None, sensitivityResults=baseline_dict)
+try:
+  run_comparable_result_analysis(comparable_results)
+except Exception:
+        print("FAILED IN sensitivty analysis")
+        traceback.print_exc()
+        stackprinter.show(style='lightbg')
+        raise
 
 def runAnalysisGraphingPipelineOnly(inputParameters, scenarios, metric_config, V_num, testOneChunk=False, selection=None, sensitivityResults=None):
    
@@ -9763,8 +10093,8 @@ def runAnalysisGraphingPipelineOnly(inputParameters, scenarios, metric_config, V
                 aggRes = cached["aggRes"]
                 assetResults = cached["assetResults"]
                 metric_results = cached["metric_results"]
-                time = cached["time"]
-                households = cached["households"]
+                # time = cached["time"]
+                # households = cached["households"]
             else:
                 print(f"[{scenarioName}] Chunk analysis complete. Saving to cache...")
                 with open(cache_file, 'wb') as f:

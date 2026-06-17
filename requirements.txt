@@ -13,3 +13,4 @@ stackprinter
 tqdm
 yfinance
 zstandard
+openpyxl
