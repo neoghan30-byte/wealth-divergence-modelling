@@ -1,0 +1,15 @@
+arch
+icecream
+ipython
+ipywidgets
+matplotlib
+numba
+numpy
+pandas
+psutil
+scipy
+seaborn
+stackprinter
+tqdm
+yfinance
+zstandard
