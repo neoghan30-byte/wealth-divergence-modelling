@@ -7934,13 +7934,23 @@ def runChunks(inputParameters, coeffsDict, fullCorr, allTickersOrdered, assetWei
   existing_max = -1
 
 
+  # for fname in os.listdir(chunkFolder):
+  #     match = re.search(rf"Chunk_Results_{V_num}", fname) # _(\d+)_(\d+)\.pkl
+  #     if match:
+  #         end_idx = int(match.group(2))
+  #         existing_max = max(existing_max, end_idx)
+  prefix = f"Chunk_Results_{V_num}_"
   for fname in os.listdir(chunkFolder):
-      match = re.search(r"Chunk_Results_{V_num}_(\d+)_(\d+)\.pkl", fname)
-      if match:
-          end_idx = int(match.group(2))
-          existing_max = max(existing_max, end_idx)
+    if not fname.startswith(prefix):
+        continue
 
-
+    try:
+        start, end = fname.replace(".pkl", "").split("_")[-2:]
+        end = int(end)
+        existing_max = max(existing_max, end)
+    except:
+        continue
+    
   startBase = existing_max + 1
 
   # allPathsPortRet_global = []
