@@ -9155,10 +9155,32 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
         metric_config=metric_config,
         coeffsDict=coeffsDict,
         sensitivity_results=comparable_results)
-      print(f"RAM: comparable results {psutil.Process().memory_info().rss / 1024**3:.2f} GB"
-)
+      print(f"RAM: comparable results {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
+      cache_file = Path(data_dir) / f"Aggregated_State_{scenarioName}_V{V_num}.pkl"
+      if cache_file.exists():
+          print(f"Loading cached analysis: {cache_file}")
+
+          with open(cache_file, "rb") as f:
+              cached = pickle.load(f)
+
+          aggRes = cached["aggRes"]
+          assetResults = cached["assetResults"]
+          metric_results = cached["metric_results"]
+          time = cached["time"]
+          households = cached["households"]
+      else:
+          print(f"baseline Chunk analysis complete. Saving to cache...")
+          with open(cache_file, 'wb') as f:
+              pickle.dump({
+                  'aggRes': aggRes,
+                  'assetResults': assetResults,
+                  'metric_results': metric_results,
+                  'time': time,
+                  'households': households
+              }, f)
+
   except Exception:
-      print("FAILED IN GRAPHING")
+      print("FAILED ")
       traceback.print_exc()
       stackprinter.show(style='lightbg')
       raise
@@ -9586,10 +9608,34 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
 
         )
         print(f"RAM: (metric anaylsis) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
+
         # print(f"WOOOOO results: {metric_results['house_cum_results']['house_cum_df']}")
         sensitivityResults = get_comparable_results(metric_results, scenarioName, inputParametersInitial, metric_config, scenario_coeffs, sensitivityResults, scenario)
         # if testOneChunk:
+
         print(f"RAM: (sensitivity res) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
+        cache_file = Path(data_dir) / f"Aggregated_State_{scenarioName}_{V_num}.pkl"
+        if cache_file.exists():
+            print(f"Loading cached analysis: {cache_file}")
+
+            with open(cache_file, "rb") as f:
+                cached = pickle.load(f)
+
+            aggRes = cached["aggRes"]
+            assetResults = cached["assetResults"]
+            metric_results = cached["metric_results"]
+            time = cached["time"]
+            households = cached["households"]
+        else:
+            print(f"[{scenarioName}] Chunk analysis complete. Saving to cache...")
+            with open(cache_file, 'wb') as f:
+                pickle.dump({
+                    'aggRes': aggRes,
+                    'assetResults': assetResults,
+                    'metric_results': metric_results,
+                    'time': time,
+                    'households': households
+                }, f)
         #    continue
     except Exception:
         print("FAILED IN ANALYSIS")
@@ -9707,7 +9753,28 @@ def runAnalysisGraphingPipelineOnly(inputParameters, scenarios, metric_config, V
                 aggRes=aggRes,  
                 asset_level_res=assetResults
             )
-            
+            cache_file = Path(data_dir) / f"Aggregated_State_{scenarioName}_V{V_num}.pkl"
+            if cache_file.exists():
+                print(f"Loading cached analysis: {cache_file}")
+
+                with open(cache_file, "rb") as f:
+                    cached = pickle.load(f)
+
+                aggRes = cached["aggRes"]
+                assetResults = cached["assetResults"]
+                metric_results = cached["metric_results"]
+                time = cached["time"]
+                households = cached["households"]
+            else:
+                print(f"[{scenarioName}] Chunk analysis complete. Saving to cache...")
+                with open(cache_file, 'wb') as f:
+                    pickle.dump({
+                        'aggRes': aggRes,
+                        'assetResults': assetResults,
+                        'metric_results': metric_results,
+                        'time': time,
+                        'households': households
+                    }, f)
             sensitivityResults = get_comparable_results(
                 metric_results, scenarioName, inputParametersInitial, 
                 metric_config, scenario_coeffs, sensitivityResults, scenario
