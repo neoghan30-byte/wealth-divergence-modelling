@@ -10001,18 +10001,18 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
 # main(inputParameters, 8)
 #=====================================
 
-currentRun = 126
-baseline_output = main(V_num=f"baseline_debug{currentRun}", inputParameters=None, testOneChunk=True)
-baseline_dict = baseline_output["comparable_results"] 
-selection = ['HigherReturns10', "globalHigher10", "SmallCapHeavy"]
-comparable_results = runSensitivityTests(inputParameters=None, scenarios=None, metric_config=None, V_num=f"sensitivityDebug{currentRun}", testOneChunk=True, selection=None, sensitivityResults=baseline_dict)
-try:
-  run_comparable_result_analysis(comparable_results)
-except Exception:
-        print("FAILED IN sensitivty analysis")
-        traceback.print_exc()
-        stackprinter.show(style='lightbg')
-        raise
+# currentRun = 126
+# baseline_output = main(V_num=f"baseline_debug{currentRun}", inputParameters=None, testOneChunk=True)
+# baseline_dict = baseline_output["comparable_results"] 
+# selection = ['HigherReturns10', "globalHigher10", "SmallCapHeavy"]
+# comparable_results = runSensitivityTests(inputParameters=None, scenarios=None, metric_config=None, V_num=f"sensitivityDebug{currentRun}", testOneChunk=True, selection=None, sensitivityResults=baseline_dict)
+# try:
+#   run_comparable_result_analysis(comparable_results)
+# except Exception:
+#         print("FAILED IN sensitivty analysis")
+#         traceback.print_exc()
+#         stackprinter.show(style='lightbg')
+#         raise
 
 def runAnalysisGraphingPipelineOnly(inputParameters, scenarios, metric_config, V_num, testOneChunk=False, selection=None, sensitivityResults=None):
    
