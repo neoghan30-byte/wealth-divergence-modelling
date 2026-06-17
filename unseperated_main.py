@@ -9156,7 +9156,7 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
         coeffsDict=coeffsDict,
         sensitivity_results=comparable_results)
       print(f"RAM: comparable results {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
-      cache_file = Path(data_dir) / f"Aggregated_State_{scenarioName}_V{V_num}.pkl"
+      cache_file = Path(data_dir) / f"Aggregated_State_{V_num}.pkl"
       if cache_file.exists():
           print(f"Loading cached analysis: {cache_file}")
 
