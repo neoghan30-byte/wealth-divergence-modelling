@@ -4,9 +4,9 @@ import psutil
 import os
 
 if os.path.exists("/content/drive/MyDrive"):
-    data_dir = Path("/content/drive/MyDrive/Young_Economist")
+    project_dir = Path("/content/drive/MyDrive/Young_Economist")
 else:
-    data_dir = Path(r"G:\My Drive\Young_Economist")
+    project_dir = Path(r"G:\My Drive\Young_Economist")
 print(f"Hello WOrld")
 use_GoogleDrive = False 
 use_colab = False
@@ -16,15 +16,17 @@ if use_GoogleDrive:
     
     # data_dir = Path(r"G:\My Drive\Young_Economist")
     if os.path.exists("/content/drive/MyDrive"):
-        data_dir = Path("/content/drive/MyDrive/Young_Economist")
+        project_dir = Path("/content/drive/MyDrive/Young_Economist")
         use_colab = True
     else:
-        data_dir = Path(r"G:\My Drive\Young_Economist")
+        project_dir = Path(r"G:\My Drive\Young_Economist")
 else:
     # Points to a local 'data' folder next to script
-    data_dir = Path(__file__).parent / "data"
+    project_dir = Path(__file__).parent 
 
 # 3. 
+g_project_dir = Path(r"G:\My Drive\Young_Economist")
+data_dir = project_dir / "data"
 chunk_dir = data_dir / "chunkResults"
 graph_dir = data_dir / "graphs"
 # print(os.path.exists(r"C:\Users\eogha\AppData\Local\Google"))
@@ -39,7 +41,102 @@ def validate_simulation(results):
         assert len(asset["wealth"]) == n
 
     return True
+import logging
+import traceback
+import inspect
+import logging
+import traceback
+import inspect
+import os
 
+# -----------------------------
+# Ensure log directory exists
+# -----------------------------
+LOG_DIR = project_dir / "logs"
+LOG_FILE = os.path.join(LOG_DIR, "pipeline_failures.log")
+
+if not os.path.exists(LOG_DIR):
+    os.makedirs(LOG_DIR, exist_ok=True)
+
+# -----------------------------
+# Configure logging 
+# -----------------------------
+logging.basicConfig(
+    filename=LOG_FILE,
+    level=logging.ERROR,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    force=True  # important if re-running in notebooks
+)
+def log_pipeline_failure(error=None, **kwargs):
+    """
+    Universal failure logger for simulation pipelines.
+
+    Safe features:
+    - works with Exception, string, or None
+    - no dependency on external variables
+    - auto-captures traceback if in except block
+    - safe extraction of optional context
+    - never crashes itself
+    """
+
+    # -----------------------------
+    # Auto-context (optional)
+    # -----------------------------
+    frame = inspect.currentframe().f_back
+    function_name = frame.f_code.co_name
+
+    stage = kwargs.get("stage", function_name)
+    V_num = kwargs.get("V_num", None)
+    fname = kwargs.get("fname", None)
+    chunkIndex = kwargs.get("chunkIndex", None)
+    scenario = kwargs.get("scenario", None)
+    hardCrash = kwargs.get("hardCrash", True)
+    message = kwargs.get("message", None)
+    # -----------------------------
+    # Normalize error
+    # -----------------------------
+    if error is None:
+        err_type = "UnknownError"
+        err_msg = "No error provided"
+        tb = None
+
+    elif isinstance(error, Exception):
+        err_type = type(error).__name__
+        err_msg = repr(error)
+        tb = traceback.format_exc()
+
+    else:
+        err_type = "ManualError"
+        err_msg = str(error)
+        tb = None
+    
+    if not os.path.exists(LOG_DIR):
+        os.makedirs(LOG_DIR, exist_ok=True)
+
+    # -----------------------------
+    # Structured log
+    # -----------------------------
+    logging.error(
+        "PIPELINE_FAILURE | "
+        f"stage={stage} | "
+        f"V_num={V_num} | "
+        f"scenario={scenario} | "
+        f"file={fname} | "
+        f"chunkIndex={chunkIndex} | "
+        f"error_type={err_type} | "
+        f"error={err_msg}"
+        f"message={message} | "
+    )
+
+    # traceback (if available)
+    if tb:
+        logging.error(tb)
+
+    # -----------------------------
+    # optional crash
+    # -----------------------------
+    if hardCrash and isinstance(error, Exception):
+        raise error
 # ________________________________________________________-
 # analysis_from_chunks.py
 #
@@ -250,10 +347,27 @@ def _build_hist_portfolio(
             # raw = cd.get("histRet", cd.get("mu", None))
             raw = cd.get("histRetMonthly", cd.get("histRet", cd.get("mu", None)))
             if raw is None:
-                raise KeyError(
-                    f"No 'histRet' or 'mu' found for {ticker} ({asset_class}). "
-                    f"Keys: {list(cd.keys())}"
-                )
+                if hardCrash:
+                  raise KeyError(
+                      f"No 'histRet' or 'mu' found for {ticker} ({asset_class}). "
+                      f"Keys: {list(cd.keys())}"
+                  )
+                else:
+                   
+                  log_pipeline_failure(
+                      KeyError(
+                      f"No 'histRet' or 'mu' found for {ticker} ({asset_class}). "
+                      f"Keys: {list(cd.keys())}"
+                      ),
+                      stage="build_hist",
+                      raw_type=str(type(raw)),
+                      # V_num=V_num,
+                      # fname=fname,
+                      
+                  )
+                  failed_count += 1 if 'failed_count' in locals() else 1
+
+                  continue
 
             # Normalise to pd.Series
             if isinstance(raw, pd.DataFrame):
@@ -264,9 +378,21 @@ def _build_hist_portfolio(
             elif isinstance(raw, pd.Series):
                 s = raw.copy()
             else:
-                raise ValueError(
-                    f"Unexpected type {type(raw)} for {ticker} histRet."
-                )
+                if hardCrash:
+                    raise ValueError(
+                        f"Unexpected type {type(raw)} for {ticker} histRet."
+                    )
+                else:
+                    log_pipeline_failure(
+                      ValueError(
+                        f"Unexpected type {type(raw)} for {ticker} histRet."
+                    ),
+                      stage="build_hist",
+                      # V_num=V_num,
+                      # fname=fname,
+                     
+                  )
+                    continue
 
             # Ensure DatetimeIndex
             if not isinstance(s.index, pd.DatetimeIndex):
@@ -400,9 +526,11 @@ def _make_table_pretty(df, name, folder, fontsize=13):
     Path(folder).mkdir(parents=True, exist_ok=True)
     
     plt.savefig(save_file_local, dpi=300)
+    backup_file(save_file_local)
     print("Save folder in convergence table", repr(save_file_local))
     plt.show()
     plt.close()
+  
 # def heatMap(histValues, simValues, households, bandDict):
 #   pass
 #   coverage_matrix = []
@@ -450,6 +578,15 @@ def wealthGapDistribution(chunk_folder: str, households: list, V_num,
                with open(fpath, "rb") as f:
                 saved = pickle.load(f)
         except Exception as e:
+            log_pipeline_failure(
+                  e,
+                  stage="chunk_loading",
+                  V_num=V_num,
+                  fname=fname,
+                  # chunkIndex=chunkIndex,
+                  hardCrash=hardCrash
+              )
+              # continue
             print(f"Skipping corrupted chunk {fname}: {e}")
             continue
         # with open(fpath, "rb") as f:
@@ -559,7 +696,6 @@ def wealthGapDistribution(chunk_folder: str, households: list, V_num,
 #     plt.show()
 
 def multiBandBacktest(sim_horizon: dict, hist_horizon: dict,
-                      assets_completed: dict, asset_weights: dict,
                       households: list, time_hist: list,
                       PERCENTILE_BANDS: dict, V_num: str, verbose: bool = False, chunk_folder: str = None, coeffs_dict: dict = None) -> dict:
     """
@@ -664,8 +800,8 @@ def multiBandBacktest(sim_horizon: dict, hist_horizon: dict,
         "raw": {
           "coverage_df":   coverage_df,
           "coverage_raw":  coverage,
-          "sim_one_year":  sim_one_year,
-          "hist_one_year": hist_one_year,
+          "sim_horizon":  sim_horizon,
+          "hist_horizon": hist_horizon,
           "band_names": band_names,
           "expected": expected}
     }
@@ -921,6 +1057,15 @@ def run_combined_analysis(
                 saved = pickle.load(f)
           mc = saved["chunkResults"]["monteCarlo"]
         except Exception as e:
+            log_pipeline_failure(
+                  e,
+                  stage="chunk_loading",
+                  V_num=V_num,
+                  fname=fname,
+                  # chunkIndex=chunkIndex,
+                  hardCrash=hardCrash
+              )
+            
             print(f"  WARNING: could not load {fname}: {e}")
             continue
 
@@ -3061,6 +3206,8 @@ sigma_list_debug = False
 useLogs = True
 useCholesky = False
 useBlending = True
+hardCrash = False
+import logging
 
 from matplotlib.ticker import PercentFormatter
 from scipy.optimize import minimize
@@ -3186,8 +3333,8 @@ def setup():
           return None
 
 
-  fullSavedAssetResFull = _loadAggregationState(filePath = data_dir / "assetState3ResultsLight.pkl")
-  fullSavedAssetRes = fullSavedAssetResFull
+  # fullSavedAssetResFull = _loadAggregationState(filePath = data_dir / "assetState3ResultsLight.pkl")
+  # fullSavedAssetRes = fullSavedAssetResFull
 
 
   reRun = 1
@@ -3304,13 +3451,13 @@ def setup():
   # for i in range((end - (start - dt.timedelta(days=1))).days):
   #   extraTime.append((start - dt.timedelta(days=1)) + dt.timedelta(days=i))
 
-  res = fullSavedAssetRes['sampleAssetPaths']['Business Wealth']['Business Wealth S.E'][1]
+  # res = fullSavedAssetRes['sampleAssetPaths']['Business Wealth']['Business Wealth S.E'][1]
 
-  # Build a time axis that matches res exactly, regardless of resolution
-  res_len = len(res)
-  total_days = (end - start).days          # 9130
-  step = total_days / res_len              # 10.0 now, 1.0 when you switch to 1:1
-  res_time = [start + dt.timedelta(days=i * step) for i in range(res_len + 2)]
+  # # Build a time axis that matches res exactly, regardless of resolution
+  # res_len = len(res)
+  # total_days = (end - start).days          # 9130
+  # step = total_days / res_len              # 10.0 now, 1.0 when you switch to 1:1
+  # res_time = [start + dt.timedelta(days=i * step) for i in range(res_len + 2)]
 
   # plt.title("WOOO HERE")
   # plt.plot(res_time, res)
@@ -3673,8 +3820,8 @@ def setup():
           "largeCapTicker": '^125904-USD-STRD'
       },
       "Chunks": {
-          "totalPaths": 10,
-          "chunkSize": 10,
+          "totalPaths": 500,
+          "chunkSize": 50,
       },
       "Correlation Modifier": {
         "Global Scalar": 1.0,
@@ -4007,7 +4154,7 @@ def setup():
       "time": time, 
       "folder": folder,
       "chunkFolder": chunkFolder, 
-      "fullSavedAssetRes": fullSavedAssetRes, 
+      # "fullSavedAssetRes": fullSavedAssetRes, 
       "corrAbleClasses": corrAbleClasses, 
       "metric_config": metric_config, 
       "chunk_dir": chunk_dir, 
@@ -4021,6 +4168,14 @@ def setup():
         # _--------------------------------------------------------------------------------------------------------------------------------------
         #                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ running ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # _--------------------------------------------------------------------------------------------------------------------------------------
+def backup_file(filename):
+    subprocess.run([
+        "rclone",
+        "copy",
+        filename,
+        "gdrive:Young_Economist/chunkResults"
+    ], check=True)
+
 def _save_item(item, path=None, base_path=None, add_to_base=None):
       if path == None and base_path == None and add_to_base == None:
         print(f"Everything was none. Notice_me!")
@@ -4045,10 +4200,12 @@ def _save_item(item, path=None, base_path=None, add_to_base=None):
       except Exception as e:
           print("Failed to save item:", e)
           return None
+      backup_file(path)
       print("Saved item:", path)
 def aggregate_to_asset_paths(nTotalPaths, V_num):
 
-
+  stage = "asset_agg"
+  faield_count = 0
 
   def _saveAssetState(state, path):
 
@@ -4059,6 +4216,7 @@ def aggregate_to_asset_paths(nTotalPaths, V_num):
       except Exception as e:
           print("Failed to load asset state:", e)
           return None
+      backup_file(path)
       print("Saved asset state:", path)
 
 
@@ -4337,12 +4495,12 @@ def aggregate_to_asset_paths(nTotalPaths, V_num):
   # from google.colab import drive
   # drive.mount('/content/drive')
 
-
+  os.makedirs(chunkFolder, exist_ok=True)
   if not os.path.exists(chunkFolder):
       print(f"Error: The folder '{chunkFolder}' does not exist. Please ensure Google Drive is mounted and the path is correct.")
       raise FileNotFoundError(f"Directory not found: {chunkFolder}")
 
-  all_files = [f for f in os.listdir(chunkFolder) if f.startswith("Chunk_Results_") and f.endswith(".pkl") and f"_{V_num}_" in f]
+  all_files = [f for f in os.listdir(chunkFolder) if f.startswith("Chunk_Results_") and f.endswith(".pkl") and f"{V_num}" in f]
 
   def extract_start_index(fname):
       parts = fname.replace(".pkl", "").split("_")
@@ -4411,6 +4569,9 @@ def aggregate_to_asset_paths(nTotalPaths, V_num):
 
 # print(fullSavedAssetRes['meanAssetPath'])
 def portfolioAggregation(assetWeights, fullSavedAssetRes, households, assetsCompleted):
+  stage = "port_agg"
+  failed_count = 0 
+
   returnExample = fullSavedAssetRes['meanAssetPath']['Business Wealth']['Business Wealth S.E']
   portRet = {h: np.zeros_like(returnExample) for h in households}
   portCumR = {h: np.zeros_like(returnExample) for h in households}
@@ -7689,6 +7850,9 @@ def runMonteCarloReal(N, sampleStep, coeffsDict, fullCorr, allTickersOrdered, as
 def runChunks(inputParameters, coeffsDict, fullCorr, allTickersOrdered, assetWeights, assets, assetsCompleted, assetsYahoo,
               corrAbleClasses, households,
               time, returnsDict, folder, V_num, busEpsScalar=1.1, alphaBus=None, testOneChunk=False, master_seed=None):
+  stage = "runChunks"
+  failed_count = 0
+
   totalPaths = inputParameters['Chunks']['totalPaths']#5000
   chunkSize = inputParameters['Chunks']['chunkSize']
   daysPerYear = inputParameters["Overall"]["daysPerYear"]
@@ -7845,7 +8009,17 @@ def runChunks(inputParameters, coeffsDict, fullCorr, allTickersOrdered, assetWei
               if debugChunk == True:
                 print(f"Chunk saved: {filePath}")
     except Exception as e:
-        raise e
+        if hardCrash:
+            raise e
+        else:
+            log_pipeline_failure(
+                e,
+                stage="run_chunks",
+                V_num=V_num,
+                fname=fname,
+                message=f"failed to dump chunkSave to {filePath}"
+            )
+            continue
     del chunkResData, chunkResult, chunkSave
     gc.collect()
 
@@ -8786,7 +8960,8 @@ def get_comparable_results(metric_results, name, inputParameters, metric_config,
 
 def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=None, metric_config=None, nPaths=None, chunkSize=None):
   
-  
+  stage = "main"
+  failed_count = 0
   import traceback
 #   !pip install stackprinter
   import stackprinter
@@ -8875,7 +9050,7 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
     t0 = tm.perf_counter()
     print("=== CHUNK SIMULATION ===")
     # if debugLocal: V_num = "debug"
-    aggres = runChunks(inputParameters, coeffsDict, fullCorr, allTickersOrdered, cfg["assetWeights"], cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], 
+    aggres = runChunks(cfg["inputParameters"], coeffsDict, fullCorr, allTickersOrdered, cfg["assetWeights"], cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], 
                        cfg["corrAbleClasses"], cfg["households"], cfg["time"], returnsDict, cfg["folder"], V_num, testOneChunk, master_seed=None)
     print(f"RAM: (aggres) {psutil.Process().memory_info().rss / 1024**3:.2f} GB"
 )
@@ -9236,7 +9411,8 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
        
      
   
-  
+  stage = "sensitivity_run"
+  failed_count = 0 
   try:
       print("=== SETUP ===")
       cfg = setup()
@@ -9264,7 +9440,7 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
         print("=== COEFF FITTING ===")
         # coeffsDict, returnsDict = getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, time, corrAbleClasses, {}, inputParameters)
         coeffsDict, returnsDict, fullCorr, allTickersOrdered = getCoeffs(cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], cfg["assetWeights"], cfg["households"], cfg["time"], cfg["corrAbleClasses"], {}, inputParameters)
-        
+        print(f"RAM: (getCoeffs) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
         # returns_array = np.array(list(returnsDict.values()))
         # excessDays = np.sum(np.abs(returns_array) > 0.5)
         # total_days = len(returnsDict)
@@ -9274,7 +9450,7 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
         # assert excessDays <= max_allowed_bad_days, (
         #     f"returnsDict has total days exceeding 50%: {excessDays} out of {total_days}"
         # )
-        explode_test(3, returnsDict, "main() runChunks")
+        explode_test(3, returnsDict, "get_coeffs runSenstest")
         # assert np.any(np.abs(returnsDict) < 0.6), f"returnsDict has total days exceeding 50%: {np.sum(returnsDict.abs()) > 0.5)} out of {len(r)}"
   except Exception:
         print("FAILED IN GETCOEFFS")
@@ -9295,7 +9471,7 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
     scenarioType = scenario.get("type").lower()
     scenarioName = scenario.get("name")
     # base_coeffs = copy.deepcopy(coeffsDict)
-    inputParametersInitial = copy.deepcopy(inputParameters)
+    inputParametersInitial = copy.deepcopy(cfg["inputParameters"])
     scenario_coeffs = copy.deepcopy(coeffsDict)
     print(f"\n>>> APPLYING SCENARIO: {scenarioName} <<<")
     
@@ -9331,13 +9507,14 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
       muScalar = scenario.get("muScalar", 1.0)
       volScalar = scenario.get("volScalar", 1.0)
       scenario_coeffs = applyReturnShock(coeffsDict=coeffsDict, muScalar=muScalar, volScalar=volScalar)
+    print(f"RAM: (applying scenario) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
     # Step 2: running baseline
     try:
       t0 = tm.perf_counter()
       print("=== CHUNK SIMULATION ===")
       # if debugLocal: V_num = "debug"
       aggres = runChunks(inputParametersInitial, scenario_coeffs, scenario_fullCorr, scenario_tickers, cfg["assetWeights"], cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], cfg["corrAbleClasses"], cfg["households"], cfg["time"], returnsDict, cfg["folder"], V_num=f"{V_num}_{scenarioName}", testOneChunk=testOneChunk, master_seed=master_seed)
-
+      print(f"RAM: (running chunks) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
       # aggres = runChunks(inputParametersInitial, scenario_coeffs, assetWeights, assets, assetsCompleted, assetsYahoo, corrAbleClasses, households, time, 
       #                    returnsDict, folder, V_num=f"{V_num}_{scenarioName}", testOneChunk=testOneChunk)
       # aggres
@@ -9355,7 +9532,7 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
             nTotalPaths=inputParametersInitial["Chunks"]["totalPaths"],
             V_num=f"{V_num}_{scenarioName}",
         )
-
+        print(f"RAM: (asset aggregation) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
     except Exception:
         print("FAILED IN ASSET AGGREGATION")
         traceback.print_exc()
@@ -9372,7 +9549,7 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
             households=cfg["households"],
             assetsCompleted=cfg["assetsCompleted"]
         )
-
+        print(f"RAM: (port agg) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
     except Exception:
         print("FAILED IN PORTFOLIO AGGREGATION")
         traceback.print_exc()
@@ -9396,9 +9573,11 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
           asset_level_res = assetResults
 
         )
+        print(f"RAM: (metric anaylsis) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
         # print(f"WOOOOO results: {metric_results['house_cum_results']['house_cum_df']}")
         sensitivityResults = get_comparable_results(metric_results, scenarioName, inputParametersInitial, metric_config, scenario_coeffs, sensitivityResults, scenario)
         # if testOneChunk:
+        print(f"RAM: (sensitivity res) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
         #    continue
     except Exception:
         print("FAILED IN ANALYSIS")
@@ -9417,7 +9596,7 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
           metric_results=metric_results,
           tablesNeeded=True
       )
-
+      print(f"RAM: (graphing) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
   except Exception:
       print("FAILED IN GRAPHING")
       traceback.print_exc()
@@ -9434,18 +9613,18 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
 # main(inputParameters, 8)
 #=====================================
 
-currentRun = 122
-baseline_output = main(V_num=f"baseline_debug{currentRun}", inputParameters=None, testOneChunk=True)
-baseline_dict = baseline_output["comparable_results"] 
-selection = ['HigherReturns10', "globalHigher10", "SmallCapHeavy"]
-comparable_results = runSensitivityTests(inputParameters=None, scenarios=None, metric_config=None, V_num=f"sensitivityDebug{currentRun}", testOneChunk=True, selection=None, sensitivityResults=baseline_dict)
-try:
-  run_comparable_result_analysis(comparable_results)
-except Exception:
-        print("FAILED IN sensitivty analysis")
-        traceback.print_exc()
-        stackprinter.show(style='lightbg')
-        raise
+# currentRun = 122
+# baseline_output = main(V_num=f"baseline_debug{currentRun}", inputParameters=None, testOneChunk=False)
+# baseline_dict = baseline_output["comparable_results"] 
+# selection = ['HigherReturns10', "globalHigher10", "SmallCapHeavy"]
+# comparable_results = runSensitivityTests(inputParameters=None, scenarios=None, metric_config=None, V_num=f"sensitivityDebug{currentRun}", testOneChunk=False, selection=None, sensitivityResults=baseline_dict)
+# try:
+#   run_comparable_result_analysis(comparable_results)
+# except Exception:
+#         print("FAILED IN sensitivty analysis")
+#         traceback.print_exc()
+#         stackprinter.show(style='lightbg')
+#         raise
 
 def runAnalysisGraphingPipelineOnly(inputParameters, scenarios, metric_config, V_num, testOneChunk=False, selection=None, sensitivityResults=None):
    
@@ -9454,7 +9633,7 @@ def runAnalysisGraphingPipelineOnly(inputParameters, scenarios, metric_config, V
     print("=== SETUP & COEFF FITTING ===")
     (
         assetsCompleted, assetsYahoo, assets, assetWeights, 
-        households, time, folder, chunkFolder, fullSavedAssetRes, corrAbleClasses
+        households, time, folder, chunkFolder, corrAbleClasses
     ) = setup()
     
     coeffsDict, returnsDict = getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, time, corrAbleClasses, {}, inputParameters)
@@ -9535,7 +9714,19 @@ def runAnalysisGraphingPipelineOnly(inputParameters, scenarios, metric_config, V
 
         except Exception as e:
             print(f"Failed processing scenario {scenarioName}")
-            raise e
+            if hardCrash:
+                raise e
+            else:
+              log_pipeline_failure(
+                  e,
+                  stage="run_analysis",
+                  V_num=V_num,
+                  # fname=fname,
+                  # chunkIndex=chunkIndex,
+                  hardCrash=hardCrash,
+                  message = f"Failed processing scenario {scenarioName}"
+              )
+              continue
 
     return {"comparable_results": sensitivityResults}
 
