@@ -156,13 +156,14 @@ def flatten_results_safe(comparable_results):
 
 df = flatten_results_safe(comp_dict)
 def get_gap(df, scenario):
-    return df.loc[
+    rows = df.loc[
         (df["Scenario"] == scenario) &
-        (df["Category"] == "gap_results") &
-        (df["Level_1"] == "gap_rich_poor") &
-        (df["Metric"] == "mean"),
-        "Value"
-    ].iloc[0]
+        (df["Category"] == "gap_results")
+    ]
+
+    print(rows[["Level_1","Level_2","Metric","Value"]].head(50))
+
+    raise RuntimeError("Inspect output")
 
 
 def get_terminal(df, scenario, bucket):
