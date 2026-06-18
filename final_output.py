@@ -180,7 +180,7 @@ try:
     print("Running Graphing Pipeline...")
     
   
-    from unseperated_main.py import runGraphs
+    from unseperated_main import runGraphs
     
     runGraphs(
         aggRes=aggRes,
