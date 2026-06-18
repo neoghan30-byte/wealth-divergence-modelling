@@ -2985,6 +2985,12 @@ def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results,
   #render 
   metric_results = copy.deepcopy(metric_results)
   metric_results_streamlined = _streamline_results(metric_results)
+  print(metric_results_streamlined.keys())
+
+  if "results" in metric_results_streamlined:
+      print(metric_results_streamlined["results"].keys())
+  else:
+      print("NO RESULTS KEY")
   if "results" in metric_results_streamlined:
     results = metric_results_streamlined["results"]#.get(metric_results["results"])
     # results = _streamline_results(metric_results)
@@ -3031,7 +3037,7 @@ def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results,
         titleWeight = titleWeight,
         folder = graph_dir
       )
-    if "gap_georesults" in results:
+    if "gap_results" in results:
        results_raw = results["gap_geometric_results"].get("raw", results["gap_geometric_results"])
        labels = results_raw.get("labels")
        rich_vals = results_raw.get("rich_vals")
@@ -9159,7 +9165,7 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
             time_hist=cfg["time"],
             V_num=V_num,
             percentile_bands=inputParameters["percentile_bands"],
-            aggRes = aggRes,  # idk
+            aggRes = aggRes,  
             asset_level_res = assetResults
 
           )

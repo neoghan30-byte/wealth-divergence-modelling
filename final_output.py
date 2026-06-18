@@ -96,7 +96,7 @@ metric_results_5k = unseperated_main.get_metric_analysis(
 )
 
 # Restore original chunk loader
-unseperated_main._sorted_chunk_files = original_sorted_chunk_files
+# unseperated_main._sorted_chunk_files = original_sorted_chunk_files
 
 # =====================================================================
 # 4. INJECT 5K BASELINE INTO SENSITIVITY RESULTS
@@ -233,16 +233,22 @@ print("\n=== 5. RUNNING ALL GRAPHS ===")
 
 
 
-# Run your native graphing function. 
-# metric_results_5k is passed pristine, so no data is lost.
-unseperated_main.runGraphs(
-    aggRes=aggRes,
-    assetResults=assetResults,
-    time=cfg["time"],
-    households=cfg["households"],
-    graph_dir=graph_dir,
-    metric_results=metric_results_5k,
-    tablesNeeded=True
-)
+# Run  native graphing function. 
+print(graph_dir)
+print(metric_results_5k.keys())
+try:
+    unseperated_main.runGraphs(
+        aggRes=aggRes,
+        assetResults=assetResults,
+        time=cfg["time"],
+        households=cfg["households"],
+        graph_dir=graph_dir,
+        metric_results=metric_results_5k,
+        tablesNeeded=True,
+    )
+except Exception:
+    import traceback
+    traceback.print_exc()
+    raise
 
 print("\n=== PIPELINE COMPLETE. CHECK /graphs FOLDER ===")
