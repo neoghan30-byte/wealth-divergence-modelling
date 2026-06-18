@@ -317,7 +317,16 @@ def _sorted_chunk_files(chunk_folder: str, V_num) -> list:
         f for f in os.listdir(chunk_folder)
         if re.match(rf"Chunk_Results_{V_num}_\d+_\d+\.pkl", f)
     ]
-    return sorted(files, key=lambda f: int(re.search(r"_(\d+)_\d+\.pkl$", f).group(1)))
+    filtered = []
+    TARGET_PATHS = 5000
+    for f in files:
+        try:
+            start_idx = int(f.replace(".pkl", "").split("_")[-2])
+            if start_idx < TARGET_PATHS:
+                filtered.append(f)
+        except:
+            pass
+    return sorted(filtered, key=lambda f: int(re.search(r"_(\d+)_\d+\.pkl$", f).group(1)))
 
 
 
@@ -2825,25 +2834,20 @@ import matplotlib.ticker as mtick
 
 def _streamline_results(full_output):
     item = {}
-    
-    # 1. Loop through top-level buckets: 'results', 'validation', etc.
+
     for category, analyses in full_output.items():
         if not isinstance(analyses, dict):
             continue
-            
-        # 2. Loop through analysis blocks: 'mean_household_results', 'house_vol_results', etc.
+
+        item[category] = {}
+
         for analysis_name, analysis_data in analyses.items():
             if isinstance(analysis_data, dict):
-                
-                # Check if 'raw' and bubble it up
-                if 'raw' in analysis_data:
-                    item[analysis_name] = analysis_data['raw']
-                # elif 'core' in analysis_data:
-                    # item[analysis_name] = analysis_data['core']
+                if "raw" in analysis_data:
+                    item[category][analysis_name] = analysis_data["raw"]
                 else:
-                    # Fallback: if there's no raw wrapper, just point to the dict itself
-                    item[analysis_name] = analysis_data
-                    
+                    item[category][analysis_name] = analysis_data
+
     return item
 
 def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results, tablesNeeded=True, plots_to_generate=None):
@@ -2986,7 +2990,12 @@ def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results,
   metric_results = copy.deepcopy(metric_results)
   metric_results_streamlined = _streamline_results(metric_results)
   print(metric_results_streamlined.keys())
+  results = metric_results_streamlined.get("results")
+  if results is None:
+      results = metric_results_streamlined
 
+  
+  print("[DEBUG] using results keys:", results.keys())
   if "results" in metric_results_streamlined:
       print(metric_results_streamlined["results"].keys())
   else:
