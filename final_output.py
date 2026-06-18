@@ -7,11 +7,11 @@ from pathlib import Path
 # =====================================================================
 # 1. CONFIGURATION
 # =====================================================================
-# Ensure these match your actual file names
+
 BASELINE_V_NUM = "baseline_debug27"       
 SENSITIVITY_V_NUM = "sensitivityDebug27"  
 
-# Define paths based on your existing structure
+# Define paths based on existing structure
 project_dir = Path(os.getcwd())
 data_dir = project_dir / "data"
 graph_dir = data_dir / "graphs"
@@ -22,7 +22,7 @@ print("=== STARTING FINAL METRIC & GRAPHING PIPELINE ===")
 # =====================================================================
 # 2. LOAD SENSITIVITY RESULTS & GENERATE DYNAMIC TABLES
 # =====================================================================
-comp_results_path = data_dir / f"comparable_results_{SENSITIVITY_V_NUM}.pkl"
+comp_results_path = data_dir / f"comparable_results_{SENSITIVITY_V_NUM}"
 print(f"Loading sensitivity results from: {comp_results_path}")
 
 try:
@@ -168,7 +168,7 @@ try:
     metric_results = cached["metric_results"]
     households = cached["households"]
     
-    # We need 'time' for the graphs. If it's not in the cache, we reconstruct it.
+    
     if "time" in cached:
         time_hist = cached["time"]
     else:
@@ -179,8 +179,7 @@ try:
 
     print("Running Graphing Pipeline...")
     
-    # Import your main script to access the runGraphs function
-    # Assuming your main script is named input_file_0.py
+  
     from unseperated_main.py import runGraphs
     
     runGraphs(
