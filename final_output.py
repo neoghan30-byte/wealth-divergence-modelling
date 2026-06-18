@@ -8,6 +8,14 @@ from pathlib import Path
 # Import your main file
 import unseperated_main
 
+def safe_load(file_path):
+    try:
+        import zstandard as zstd
+        with zstd.open(file_path, "rb") as f:
+            return pickle.load(f)
+    except Exception:
+        with open(file_path, "rb") as f:
+            return pickle.load(f)
 # =====================================================================
 # 1. CONFIGURATION
 # =====================================================================
@@ -23,8 +31,8 @@ chunk_folder = cfg["chunkFolder"]
 print("=== 1. LOADING & TRUNCATING SAVED BASELINE STATE ===")
 baseline_state_path = data_dir / f"Aggregated_State_{BASELINE_V_NUM}.pkl"
 
-with open(baseline_state_path, "rb") as f:
-    base_data = pickle.load(f)
+# with open(baseline_state_path,
+base_data = safe_load(baseline_state_path)
 
 aggRes = base_data["aggRes"]
 assetResults = base_data["assetResults"]
@@ -96,9 +104,9 @@ unseperated_main._sorted_chunk_files = original_sorted_chunk_files
 print("\n=== 3. INJECTING 5K BASELINE INTO SENSITIVITY DATA ===")
 comp_results_path = data_dir / f"comparable_results_{SENSITIVITY_V_NUM}"
 
-with open(comp_results_path, "rb") as f:
-    master_results = pickle.load(f)
-
+# with open(comp_results_path, "rb") as f:
+#     master_results = pickle.load(f)
+master_results = safe_load(comp_results_path)
 comp_dict = master_results.get("comparable_results", master_results)
 
 new_baseline_comp = unseperated_main.get_comparable_results(
