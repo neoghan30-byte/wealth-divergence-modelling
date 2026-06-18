@@ -155,15 +155,45 @@ def flatten_results_safe(comparable_results):
     return df
 
 df = flatten_results_safe(comp_dict)
+def get_gap(df, scenario):
+    return df.loc[
+        (df["Scenario"] == scenario) &
+        (df["Category"] == "gap_results") &
+        (df["Level_1"] == "gap_rich_poor") &
+        (df["Metric"] == "mean"),
+        "Value"
+    ].iloc[0]
 
+
+def get_terminal(df, scenario, bucket):
+    return df.loc[
+        (df["Scenario"] == scenario) &
+        (df["Category"] == "mean_household_results") &
+        (df["Level_1"] == bucket) &
+        (df["Metric"] == "terminal"),
+        "Value"
+    ].iloc[0]
+base_gap  = get_gap(df, "baseline")
+
+base_rich = get_terminal(df, "baseline", "80-100")
+base_med  = get_terminal(df, "baseline", "40-59")
+base_poor = get_terminal(df, "baseline", "0-20")
 # Extract 5k Baseline Terminal Wealths
-base_rich = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "80-100") & (df["Metric"] == "terminal") & (df["Scenario"] == "baseline"), "Value"].values[0]
-base_med = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "40-59") & (df["Metric"] == "terminal") & (df["Scenario"] == "baseline"), "Value"].values[0]
-base_poor = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "0-20") & (df["Metric"] == "terminal") & (df["Scenario"] == "baseline"), "Value"].values[0]
+# base_rich = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "80-100") & (df["Metric"] == "terminal") & (df["Scenario"] == "baseline"), "Value"].values[0]
+# base_med = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "40-59") & (df["Metric"] == "terminal") & (df["Scenario"] == "baseline"), "Value"].values[0]
+# base_poor = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "0-20") & (df["Metric"] == "terminal") & (df["Scenario"] == "baseline"), "Value"].values[0]
 
-# DYNAMIC GAP: Rich TW - Poor TW
-base_gap = base_rich - base_poor
+# # DYNAMIC GAP: Rich TW - Poor TW
+# base_gap = base_rich - base_poor
+print("BASE GAP:", get_gap(df, "baseline"))
 
+for sc in [
+    "globalLower20",
+    "globalHigher20",
+    "df3",
+    "df1000"
+]:
+    print(sc, get_gap(df, sc))
 def build_clean_table(scenario_type, param_col_name, param_field):
     scenarios = df.loc[df["Type"] == scenario_type, "Scenario"].unique()
     rows = []
@@ -174,15 +204,21 @@ def build_clean_table(scenario_type, param_col_name, param_field):
             m = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "40-59") & (df["Metric"] == "terminal") & (df["Scenario"] == sc), "Value"].values[0]
             p = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "0-20") & (df["Metric"] == "terminal") & (df["Scenario"] == sc), "Value"].values[0]
             
-            g = r - p
+            # g = r - p
+            g = get_gap(df, sc)
             param_val = df.loc[(df["Scenario"] == sc) & df[param_field].notnull(), param_field].values
             param_val = param_val[0] if len(param_val) > 0 else np.nan
 
-            g_pct = (g - base_gap) / (0.5 * (abs(g) + abs(base_gap)))
-            r_pct = (r - base_rich) / (0.5 * (abs(r) + abs(base_rich)))
-            m_pct = (m - base_med) / (0.5 * (abs(m) + abs(base_med)))
-            p_pct = (p - base_poor) / (0.5 * (abs(p) + abs(base_poor)))
+            # g_pct = (g - base_gap) / (0.5 * (abs(g) + abs(base_gap)))
+            # r_pct = (r - base_rich) / (0.5 * (abs(r) + abs(base_rich)))
+            # m_pct = (m - base_med) / (0.5 * (abs(m) + abs(base_med)))
+            # p_pct = (p - base_poor) / (0.5 * (abs(p) + abs(base_poor)))
 
+            # g_pct = (g - base_gap) / (0.5 * (abs(g) + abs(base_gap)))
+            g_pct = (g - base_gap) / base_gap
+            r_pct = (r - base_rich) / base_rich
+            m_pct = (m - base_med) / base_med
+            p_pct = (p - base_poor) / base_poor
             input_delta = (param_val - 1.0) if scenario_type in ["returns", "volatility"] else np.nan
             elas = (g_pct / input_delta) if (input_delta != 0 and not np.isnan(input_delta)) else np.nan
 

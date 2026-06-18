@@ -3032,7 +3032,7 @@ def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results,
 
   #render 
   metric_results = copy.deepcopy(metric_results)
-  metric_results_streamlined = _streamline_results(metric_results)
+  metric_results_streamlined = metric_results #_streamline_results(metric_results)
   print(metric_results_streamlined.keys())
   # results = metric_results_streamlined.get("results")
   # if results is None:
