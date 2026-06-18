@@ -1,4 +1,5 @@
 import os
+import re
 import pickle
 import copy
 import numpy as np
@@ -16,10 +17,10 @@ def safe_load(file_path):
     except Exception:
         with open(file_path, "rb") as f:
             return pickle.load(f)
+
 # =====================================================================
 # 1. CONFIGURATION
 # =====================================================================
-BASELINE_V_NUM = "baseline_debug27"
 SENSITIVITY_V_NUM = "sensitivityDebug27"
 TARGET_PATHS = 5000
 
@@ -28,38 +29,111 @@ data_dir = Path(cfg["data_dir"])
 graph_dir = Path(cfg["graph_dir"])
 chunk_folder = cfg["chunkFolder"]
 
-print("=== 1. RE-AGGREGATING 5K BASELINE FROM CHUNKS ===")
+print("=== 0. EXTRACTING CONFIGURATION FROM SENSITIVITY TESTS ===")
+comp_results_path = data_dir / f"comparable_results_{SENSITIVITY_V_NUM}"
+master_results = safe_load(comp_results_path)
+comp_dict = master_results.get("comparable_results", master_results)
+
+# Extract correct configuration from the sensitivity tests to ensure perfect alignment
+first_scenario = next(iter(comp_dict.values()))
+old_inputs = first_scenario.get("inputs", {})
+old_inputParameters = old_inputs.get("inputParameters", cfg["inputParameters"])
+old_assetWeights = old_inputs.get("assetWeights", cfg["assetWeights"]) 
+if "assetWeights" not in old_inputs:
+    old_assetWeights = old_inputParameters.get("assetWeights", cfg["assetWeights"])
+old_coeffsDict = first_scenario.get("coeffs_dict", None)
+
+if old_coeffsDict is None:
+    old_coeffsDict, returnsDict, fullCorr, allTickersOrdered = unseperated_main.getCoeffs(
+        cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], 
+        old_assetWeights, cfg["households"], cfg["time"], 
+        cfg["corrAbleClasses"], {}, old_inputParameters
+    )
+else:
+    _, returnsDict, fullCorr, allTickersOrdered = unseperated_main.getCoeffs(
+        cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], 
+        old_assetWeights, cfg["households"], cfg["time"], 
+        cfg["corrAbleClasses"], {}, old_inputParameters
+    )
+
+# Determine the correct baseline V_num
+existing_baseline_chunks = [
+    f for f in os.listdir(chunk_folder) 
+    if re.match(rf"^Chunk_Results_{SENSITIVITY_V_NUM}_\d+_\d+\.pkl$", f)
+]
+
+if len(existing_baseline_chunks) >= (TARGET_PATHS // old_inputParameters["Chunks"]["chunkSize"]):
+    print(f"=== FOUND EXISTING SENSITIVITY BASELINE CHUNKS ===")
+    BASELINE_V_NUM = SENSITIVITY_V_NUM
+else:
+    print(f"=== GENERATING MATCHING BASELINE CHUNKS ===")
+    BASELINE_V_NUM = SENSITIVITY_V_NUM + "_baseline"
+    old_total_paths = old_inputParameters["Chunks"]["totalPaths"]
+    old_inputParameters["Chunks"]["totalPaths"] = TARGET_PATHS
+    
+    unseperated_main.runChunks(
+        inputParameters=old_inputParameters,
+        coeffsDict=old_coeffsDict,
+        fullCorr=fullCorr,
+        allTickersOrdered=allTickersOrdered,
+        assetWeights=old_assetWeights,
+        assets=cfg["assets"],
+        assetsCompleted=cfg["assetsCompleted"],
+        assetsYahoo=cfg["assetsYahoo"],
+        corrAbleClasses=cfg["corrAbleClasses"],
+        households=cfg["households"],
+        time=cfg["time"],
+        returnsDict=returnsDict,
+        folder=cfg["folder"],
+        V_num=BASELINE_V_NUM,
+        testOneChunk=False
+    )
+    old_inputParameters["Chunks"]["totalPaths"] = old_total_paths
+
+print("=== 1. RE-AGGREGATING BASELINE FROM CHUNKS ===")
 state_file = data_dir / f"assetState_{BASELINE_V_NUM}_5k.pkl"
 res_file = data_dir / f"assetStateResults_{BASELINE_V_NUM}_5k.pkl"
 if state_file.exists(): state_file.unlink()
 if res_file.exists(): res_file.unlink()
 
-assetResults = unseperated_main.aggregate_to_asset_paths(
-    TARGET_PATHS, 
-    BASELINE_V_NUM, 
-    statePath=state_file, 
-    resultPath=res_file
-)
+# Monkey-patch os.listdir to prevent aggregate_to_asset_paths from reading scenario chunks
+original_listdir = os.listdir
+def patched_listdir(path):
+    files = original_listdir(path)
+    # Only return exact matches for the baseline V_num (rejects scenarios with suffixes like LowerReturns)
+    return [f for f in files if re.match(rf"^Chunk_Results_{BASELINE_V_NUM}_\d+_\d+\.pkl$", f) or not f.startswith("Chunk_Results_")]
+
+os.listdir = patched_listdir
+try:
+    assetResults = unseperated_main.aggregate_to_asset_paths(
+        TARGET_PATHS, 
+        BASELINE_V_NUM, 
+        statePath=state_file, 
+        resultPath=res_file
+    )
+finally:
+    os.listdir = original_listdir
+
 aggRes = unseperated_main.portfolioAggregation(
-    cfg["assetWeights"], 
+    old_assetWeights, 
     assetResults, 
     cfg["households"], 
     cfg["assetsCompleted"]
 )
 households = cfg["households"]
 
-print(f"5k Baseline Terminal Wealth (80-100): {aggRes['portCumR']['80-100'][-1]:.4f}")
-print(f"5k Baseline Terminal Wealth (0-20):   {aggRes['portCumR']['0-20'][-1]:.4f}")
+print(f"Baseline Terminal Wealth (80-100): {aggRes['portCumR']['80-100'][-1]:.4f}")
+print(f"Baseline Terminal Wealth (0-20):   {aggRes['portCumR']['0-20'][-1]:.4f}")
 
 # =====================================================================
 # 2.  CHUNK LOADER FOR METRIC ANALYSIS
 # =====================================================================
-
 original_sorted_chunk_files = unseperated_main._sorted_chunk_files
 
 def patched_sorted_chunk_files(chunk_folder, V_num):
     files = original_sorted_chunk_files(chunk_folder, V_num)
-    TARGET_PATHS = 5000
+    # Ensure strict matching so baseline doesn't pull in scenarios
+    files = [f for f in files if re.match(rf"^Chunk_Results_{V_num}_\d+_\d+\.pkl$", f)]
     filtered = []
     for f in files:
         try:
@@ -73,52 +147,44 @@ def patched_sorted_chunk_files(chunk_folder, V_num):
 unseperated_main._sorted_chunk_files = patched_sorted_chunk_files
 
 # =====================================================================
-# 3. RUN METRIC ANALYSIS ON 5K BASELINE
+# 3. RUN METRIC ANALYSIS ON BASELINE
 # =====================================================================
-print("\n=== 2. RUNNING METRIC ANALYSIS ON 5K BASELINE ===")
-coeffsDict, returnsDict, fullCorr, allTickersOrdered = unseperated_main.getCoeffs(
-    cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], 
-    cfg["assetWeights"], cfg["households"], cfg["time"], 
-    cfg["corrAbleClasses"], {}, cfg["inputParameters"]
-)
+print("\n=== 2. RUNNING METRIC ANALYSIS ON MATCHING BASELINE ===")
 
 metric_results_5k = unseperated_main.get_metric_analysis(
     chunk_folder=chunk_folder,
-    coeffs_dict=coeffsDict,
+    coeffs_dict=old_coeffsDict,
     assets_completed=cfg["assetsCompleted"],
-    asset_weights=cfg["assetWeights"],
+    asset_weights=old_assetWeights,
     households=cfg["households"],
     time_hist=cfg["time"],
     V_num=BASELINE_V_NUM,
-    percentile_bands=cfg["inputParameters"]["percentile_bands"],
+    percentile_bands=old_inputParameters["percentile_bands"],
     aggRes=aggRes,
     asset_level_res=assetResults
 )
 
 # Restore original chunk loader
-# unseperated_main._sorted_chunk_files = original_sorted_chunk_files
+unseperated_main._sorted_chunk_files = original_sorted_chunk_files
 
 # =====================================================================
-# 4. INJECT 5K BASELINE INTO SENSITIVITY RESULTS
+# 4. INJECT BASELINE INTO SENSITIVITY RESULTS
 # =====================================================================
-print("\n=== 3. INJECTING 5K BASELINE INTO SENSITIVITY DATA ===")
-comp_results_path = data_dir / f"comparable_results_{SENSITIVITY_V_NUM}"
-
-# with open(comp_results_path, "rb") as f:
-#     master_results = pickle.load(f)
-master_results = safe_load(comp_results_path)
-comp_dict = master_results.get("comparable_results", master_results)
+print("\n=== 3. INJECTING MATCHING BASELINE INTO SENSITIVITY DATA ===")
 
 new_baseline_comp = unseperated_main.get_comparable_results(
     metric_results=metric_results_5k,
     name="baseline",
-    inputParameters=cfg["inputParameters"],
+    inputParameters=old_inputParameters,
     metric_config=cfg["metric_config"],
-    coeffsDict=coeffsDict,
+    coeffsDict=old_coeffsDict,
     sensitivity_results={}
 )
 
 comp_dict["baseline"] = new_baseline_comp["baseline"]
+
+# =====================================================================
+
 
 # =====================================================================
 # 5. CALCULATE DYNAMIC GAPS & GENERATE TABLES
