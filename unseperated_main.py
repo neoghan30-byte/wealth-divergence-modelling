@@ -2832,24 +2832,46 @@ def plot_gap_geometric(labels, gaps, rich_vals, poor_vals):
 
 import matplotlib.ticker as mtick
 
+# def _streamline_results(full_output):
+#     item = {}
+
+#     for category, analyses in full_output.items():
+#         if not isinstance(analyses, dict):
+#             continue
+
+#         item[category] = {}
+
+#         for analysis_name, analysis_data in analyses.items():
+#             if isinstance(analysis_data, dict):
+#                 if "raw" in analysis_data:
+#                     item[category][analysis_name] = analysis_data["raw"]
+#                 else:
+#                     item[category][analysis_name] = analysis_data
+
+#     return item
+
 def _streamline_results(full_output):
-    item = {}
-
-    for category, analyses in full_output.items():
-        if not isinstance(analyses, dict):
-            continue
-
-        item[category] = {}
-
-        for analysis_name, analysis_data in analyses.items():
-            if isinstance(analysis_data, dict):
-                if "raw" in analysis_data:
-                    item[category][analysis_name] = analysis_data["raw"]
-                else:
-                    item[category][analysis_name] = analysis_data
-
-    return item
-
+  item = {}
+  
+  # 1. Loop through top-level buckets: 'results', 'validation', etc.
+  for category, analyses in full_output.items():
+      if not isinstance(analyses, dict):
+          continue
+          
+      # 2. Loop through analysis blocks: 'mean_household_results', 'house_vol_results', etc.
+      for analysis_name, analysis_data in analyses.items():
+          if isinstance(analysis_data, dict):
+              
+              # Check if 'raw' and bubble it up
+              if 'raw' in analysis_data:
+                  item[analysis_name] = analysis_data['raw']
+              # elif 'core' in analysis_data:
+                  # item[analysis_name] = analysis_data['core']
+              else:
+                  
+                  item[analysis_name] = analysis_data
+                  
+  return item
 def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results, tablesNeeded=True, plots_to_generate=None):
   folder = graph_dir #"/content/drive/MyDrive/Young_Economist/graphs"
   if not os.path.exists(folder):
@@ -2990,77 +3012,97 @@ def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results,
   metric_results = copy.deepcopy(metric_results)
   metric_results_streamlined = _streamline_results(metric_results)
   print(metric_results_streamlined.keys())
-  results = metric_results_streamlined.get("results")
-  if results is None:
+  # results = metric_results_streamlined.get("results")
+  # if results is None:
+  #     results = metric_results_streamlined
+   #
+  if "results" in metric_results_streamlined:
+      results = metric_results_streamlined["results"]
+  else:
       results = metric_results_streamlined
-
   
-  print("[DEBUG] using results keys:", results.keys())
+  print("[DEBUG] top-level keys:", metric_results_streamlined.keys())
+  print("[DEBUG] results alias keys:", results.keys())
   if "results" in metric_results_streamlined:
       print(metric_results_streamlined["results"].keys())
   else:
       print("NO RESULTS KEY")
-  if "results" in metric_results_streamlined:
-    results = metric_results_streamlined["results"]#.get(metric_results["results"])
+  if not ("results" in metric_results_streamlined):
+    results = metric_results_streamlined
+    # results = metric_results_streamlined["results"]#.get(metric_results["results"])
     # results = _streamline_results(metric_results)
 
     if "house_cum_results" in results:
       df = results["house_cum_results"].get("house_cum_df")
       house_cum_sigma_banded_plot(
-        assetRes = aggRes,
-        time = time,
-        graphFigSize = graphFigSize,
-        houseHoldAssetsColoursCumPaths = houseHoldAssetsColoursCumPaths,
-        householdDisplayLabels= householdDisplayLabels,
-        titleWeight = titleWeight,
-        folder = graph_dir 
+        assetRes=aggRes,
+        time=time,
+        graphFigSize=graphFigSize,
+        houseHoldAssetsColoursCumPaths=houseHoldAssetsColoursCumPaths,
+        householdDisplayLabels=householdDisplayLabels,
+        titleWeight=titleWeight,
+        folder=graph_dir 
       )
+
       if tablesNeeded:
         makeTablePretty(df, 'Household Cumulative Returns', graph_dir)
+
     if "house_vol_results" in results:
       df = results["house_vol_results"].get("house_vol_df")
       householdVolatilityPlot(graphFigSize, houseHoldAssetsColours, assetRes, time, graph_dir)
+
       if tablesNeeded:
         makeTablePretty(df, 'Household Volatility', graph_dir)
+
     if "asset_class_returns" in results:
-      # df = results["asset_class_results"].get("asset_class_df")
       assetClassVolatilityBar(
-          graphFigSize= graphFigSize,
-          fullSavedAssetRes = aggRes,
-          assetClassColours = assetClassColours,
-          titleWeight = titleWeight,
-          folder = graph_dir
-          )
-      # if tablesNeeded:
-        # makeTablePretty(df, 'Asset Class Volatility', graph_dir)
-    if "mean_household_results" in results:
-      df =  results["mean_household_results"].get("meanSummary_df")
-      mean_path = results["mean_household_results"].get("meanPath", results["mean_household_results"].get("mean_path"))
-      plotMeanPath(
-        meanPath = mean_path,
-        households = households,
-        time = time,
-        householdDisplayLabels= householdDisplayLabels,
-        graphFigSize= graphFigSize,
-        houseHoldAssetsColours= houseHoldAssetsColours,
-        titleWeight = titleWeight,
-        folder = graph_dir
+          graphFigSize=graphFigSize,
+          fullSavedAssetRes=aggRes,
+          assetClassColours=assetClassColours,
+          titleWeight=titleWeight,
+          folder=graph_dir
       )
-    if "gap_results" in results:
-       results_raw = results["gap_geometric_results"].get("raw", results["gap_geometric_results"])
+
+    if "mean_household_results" in results:
+      df = results["mean_household_results"].get("meanSummary_df")
+      mean_path = results["mean_household_results"].get(
+          "meanPath",
+          results["mean_household_results"].get("mean_path")
+      )
+
+      plotMeanPath(
+        meanPath=mean_path,
+        households=households,
+        time=time,
+        householdDisplayLabels=householdDisplayLabels,
+        graphFigSize=graphFigSize,
+        houseHoldAssetsColours=houseHoldAssetsColours,
+        titleWeight=titleWeight,
+        folder=graph_dir
+      )
+
+    if "gap_geometric_results" in results:
+       results_raw = results["gap_geometric_results"].get(
+           "raw",
+           results["gap_geometric_results"]
+       )
        labels = results_raw.get("labels")
        rich_vals = results_raw.get("rich_vals")
        poor_vals = results_raw.get("poor_vals")
        summary_df = results["gap_geometric_results"].get("summary_df")
+
        if tablesNeeded:
           makeTablePretty(summary_df, "Geometric Wealth Gap Summary", graph_dir)
+
     if "gap_results" in results:
         pairs = results["gap_results"].get("pairs")
         summmary_df = results["gap_results"].get("summary_df")
         prob_positive = results["gap_results"].get("prob_positive")
+
         plot_wealth_gap_dist(pairs, summmary_df, prob_positive, graph_dir)
-  if "validation" in metric_results_streamlined: # backtests
-      validation_results = metric_results_streamlined.get("validation", metric_results_streamlined)
+
+  if "validation" in metric_results_streamlined:
+      validation_results = metric_results_streamlined["validation"]
       # if tablesNeeded:
         # makeTablePretty(backtest_df, 'Asset Class Volatility', graph_dir)
       if "convergence_results" in validation_results:
@@ -3108,8 +3150,12 @@ def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results,
     asset_weight_inputs = metric_results_streamlined.get("inputs")
     getWeightsTable(asset_weight_inputs, graphHeight)
     asset_weights_raw = asset_weight_inputs.get("assetWeights", asset_weight_inputs.get("asset_weights"))
-  
-    householdWeightsBar(asset_weights_raw, assets, households, houseHoldAssetsColours, graphFigSize, aggRes)
+
+    try:
+        householdWeightsBar(asset_weights_raw, assets, households, houseHoldAssetsColours, graphFigSize, aggRes)
+    except Exception as e:
+        print("[WARN] householdWeightsBar failed:", e)
+        # pass
 
 
     # ================================================================================
