@@ -94,7 +94,7 @@ unseperated_main._sorted_chunk_files = original_sorted_chunk_files
 # 4. INJECT 5K BASELINE INTO SENSITIVITY RESULTS
 # =====================================================================
 print("\n=== 3. INJECTING 5K BASELINE INTO SENSITIVITY DATA ===")
-comp_results_path = data_dir / f"comparable_results_{SENSITIVITY_V_NUM}.pkl"
+comp_results_path = data_dir / f"comparable_results_{SENSITIVITY_V_NUM}"
 
 with open(comp_results_path, "rb") as f:
     master_results = pickle.load(f)
