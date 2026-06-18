@@ -2850,28 +2850,50 @@ import matplotlib.ticker as mtick
 
 #     return item
 
-def _streamline_results(full_output):
-  item = {}
+# def _streamline_results(full_output):
+#   item = {}
   
-  # 1. Loop through top-level buckets: 'results', 'validation', etc.
-  for category, analyses in full_output.items():
-      if not isinstance(analyses, dict):
-          continue
+#   # 1. Loop through top-level buckets: 'results', 'validation', etc.
+#   for category, analyses in full_output.items():
+#       if not isinstance(analyses, dict):
+#           continue
           
-      # 2. Loop through analysis blocks: 'mean_household_results', 'house_vol_results', etc.
-      for analysis_name, analysis_data in analyses.items():
-          if isinstance(analysis_data, dict):
+#       # 2. Loop through analysis blocks: 'mean_household_results', 'house_vol_results', etc.
+#       for analysis_name, analysis_data in analyses.items():
+#           if isinstance(analysis_data, dict):
               
-              # Check if 'raw' and bubble it up
-              if 'raw' in analysis_data:
-                  item[analysis_name] = analysis_data['raw']
-              # elif 'core' in analysis_data:
-                  # item[analysis_name] = analysis_data['core']
-              else:
+#               # Check if 'raw' and bubble it up
+#               if 'raw' in analysis_data:
+#                   item[analysis_name] = analysis_data['raw']
+#               # elif 'core' in analysis_data:
+#                   # item[analysis_name] = analysis_data['core']
+#               else:
                   
-                  item[analysis_name] = analysis_data
+#                   item[analysis_name] = analysis_data
                   
-  return item
+#   return item
+def _streamline_results(full_output):
+    streamlined = {}
+
+    for section_name, section in full_output.items():
+
+        if not isinstance(section, dict):
+            streamlined[section_name] = section
+            continue
+
+        streamlined[section_name] = {}
+
+        for analysis_name, analysis_data in section.items():
+
+            if (
+                isinstance(analysis_data, dict)
+                and "raw" in analysis_data
+            ):
+                streamlined[section_name][analysis_name] = analysis_data["raw"]
+            else:
+                streamlined[section_name][analysis_name] = analysis_data
+
+    return streamlined
 def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results, tablesNeeded=True, plots_to_generate=None):
   folder = graph_dir #"/content/drive/MyDrive/Young_Economist/graphs"
   if not os.path.exists(folder):
@@ -3148,6 +3170,7 @@ def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results,
   if "inputs" in metric_results_streamlined:
     # input_results = metric_results.get("inputs")
     asset_weight_inputs = metric_results_streamlined.get("inputs")
+    assets = asset_weight_inputs.get("assetsCompleted", asset_weight_inputs.get("assets", None))
     getWeightsTable(asset_weight_inputs, graphHeight)
     asset_weights_raw = asset_weight_inputs.get("assetWeights", asset_weight_inputs.get("asset_weights"))
 
