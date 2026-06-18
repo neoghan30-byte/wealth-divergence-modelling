@@ -1,44 +1,123 @@
-import pandas as pd
-import numpy as np
-import pickle
 import os
+import pickle
+import copy
+import numpy as np
+import pandas as pd
 from pathlib import Path
+
+# Import your main file
+import unseperated_main
 
 # =====================================================================
 # 1. CONFIGURATION
 # =====================================================================
+BASELINE_V_NUM = "baseline_debug27"
+SENSITIVITY_V_NUM = "sensitivityDebug27"
+TARGET_PATHS = 5000
 
-BASELINE_V_NUM = "baseline_debug27"       
-SENSITIVITY_V_NUM = "sensitivityDebug27"  
+cfg = unseperated_main.setup()
+data_dir = Path(cfg["data_dir"])
+graph_dir = Path(cfg["graph_dir"])
+chunk_folder = cfg["chunkFolder"]
 
-# Define paths based on existing structure
-project_dir = Path(os.getcwd())
-data_dir = project_dir / "data"
-graph_dir = data_dir / "graphs"
-os.makedirs(graph_dir, exist_ok=True)
+print("=== 1. LOADING & TRUNCATING SAVED BASELINE STATE ===")
+baseline_state_path = data_dir / f"Aggregated_State_{BASELINE_V_NUM}.pkl"
 
-print("=== STARTING FINAL METRIC & GRAPHING PIPELINE ===")
+with open(baseline_state_path, "rb") as f:
+    base_data = pickle.load(f)
+
+aggRes = base_data["aggRes"]
+assetResults = base_data["assetResults"]
+households = cfg["households"]
+
+# truncate the portfolio paths to 5,000
+for h in households:
+    aggRes['portSamplePaths'][h] = aggRes['portSamplePaths'][h][:TARGET_PATHS]
+    aggRes['portSampleCum'][h] = aggRes['portSampleCum'][h][:TARGET_PATHS]
+    aggRes['portSampleSigma'][h] = aggRes['portSampleSigma'][h][:TARGET_PATHS]
+    
+    # Recompute the means based on the first 5,000 paths
+    aggRes['portRet'][h] = np.nanmean(aggRes['portSamplePaths'][h], axis=0)
+    aggRes['portCumR'][h] = np.cumprod(1 + aggRes['portRet'][h]) - 1
+    aggRes['portSigma'][h] = np.nanmean(aggRes['portSampleSigma'][h], axis=0)
+
+print(f"Truncated 5k Baseline Terminal Wealth (80-100): {aggRes['portCumR']['80-100'][-1]:.4f}")
+print(f"Truncated 5k Baseline Terminal Wealth (0-20):   {aggRes['portCumR']['0-20'][-1]:.4f}")
 
 # =====================================================================
-# 2. LOAD SENSITIVITY RESULTS & GENERATE DYNAMIC TABLES
+# 2.  CHUNK LOADER FOR METRIC ANALYSIS
 # =====================================================================
-comp_results_path = data_dir / f"comparable_results_{SENSITIVITY_V_NUM}"
-print(f"Loading sensitivity results from: {comp_results_path}")
 
-try:
-    import zstandard as zstd
-    with zstd.open(comp_results_path, "rb") as f:
-        master_results = pickle.load(f)
-except:
-    with open(comp_results_path, "rb") as f:
-        master_results = pickle.load(f)
+original_sorted_chunk_files = unseperated_main._sorted_chunk_files
 
-if isinstance(master_results, dict) and "comparable_results" in master_results:
-    comp_dict = master_results["comparable_results"]
-else:
-    comp_dict = master_results
+def patched_sorted_chunk_files(chunk_folder, V_num):
+    files = original_sorted_chunk_files(chunk_folder, V_num)
+    filtered = []
+    for f in files:
+        try:
+            start_idx = int(f.replace(".pkl", "").split("_")[-2])
+            if start_idx < TARGET_PATHS:
+                filtered.append(f)
+        except:
+            pass
+    return filtered
 
-def flatten_results(comparable_results):
+unseperated_main._sorted_chunk_files = patched_sorted_chunk_files
+
+# =====================================================================
+# 3. RUN METRIC ANALYSIS ON 5K BASELINE
+# =====================================================================
+print("\n=== 2. RUNNING METRIC ANALYSIS ON 5K BASELINE ===")
+coeffsDict, returnsDict, fullCorr, allTickersOrdered = unseperated_main.getCoeffs(
+    cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], 
+    cfg["assetWeights"], cfg["households"], cfg["time"], 
+    cfg["corrAbleClasses"], {}, cfg["inputParameters"]
+)
+
+metric_results_5k = unseperated_main.get_metric_analysis(
+    chunk_folder=chunk_folder,
+    coeffs_dict=coeffsDict,
+    assets_completed=cfg["assetsCompleted"],
+    asset_weights=cfg["assetWeights"],
+    households=cfg["households"],
+    time_hist=cfg["time"],
+    V_num=BASELINE_V_NUM,
+    percentile_bands=cfg["inputParameters"]["percentile_bands"],
+    aggRes=aggRes,
+    asset_level_res=assetResults
+)
+
+# Restore original chunk loader
+unseperated_main._sorted_chunk_files = original_sorted_chunk_files
+
+# =====================================================================
+# 4. INJECT 5K BASELINE INTO SENSITIVITY RESULTS
+# =====================================================================
+print("\n=== 3. INJECTING 5K BASELINE INTO SENSITIVITY DATA ===")
+comp_results_path = data_dir / f"comparable_results_{SENSITIVITY_V_NUM}.pkl"
+
+with open(comp_results_path, "rb") as f:
+    master_results = pickle.load(f)
+
+comp_dict = master_results.get("comparable_results", master_results)
+
+new_baseline_comp = unseperated_main.get_comparable_results(
+    metric_results=metric_results_5k,
+    name="baseline",
+    inputParameters=cfg["inputParameters"],
+    metric_config=cfg["metric_config"],
+    coeffsDict=coeffsDict,
+    sensitivity_results={}
+)
+
+comp_dict["baseline"] = new_baseline_comp["baseline"]
+
+# =====================================================================
+# 5. CALCULATE DYNAMIC GAPS & GENERATE TABLES
+# =====================================================================
+print("\n=== 4. CALCULATING DYNAMIC GAPS & ELASTICITIES ===")
+
+def flatten_results_safe(comparable_results):
     rows = []
     for scenario_name, payload in comparable_results.items():
         inputs = payload.get("inputs", {})
@@ -66,21 +145,15 @@ def flatten_results(comparable_results):
     if 'Value' in df.columns: df['Value'] = pd.to_numeric(df['Value'], errors='coerce')
     return df
 
-df = flatten_results(comp_dict)
+df = flatten_results_safe(comp_dict)
 
-# --- DYNAMIC GAP CALCULATION ---
-# Extract baseline terminal wealths
+# Extract 5k Baseline Terminal Wealths
 base_rich = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "80-100") & (df["Metric"] == "terminal") & (df["Scenario"] == "baseline"), "Value"].values[0]
 base_med = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "40-59") & (df["Metric"] == "terminal") & (df["Scenario"] == "baseline"), "Value"].values[0]
 base_poor = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "0-20") & (df["Metric"] == "terminal") & (df["Scenario"] == "baseline"), "Value"].values[0]
 
-# Calculate Dynamic Baseline Gap
+# DYNAMIC GAP: Rich TW - Poor TW
 base_gap = base_rich - base_poor
-
-print(f"\n=== CLINICAL BASELINE LOCK (DYNAMIC GAP) ===")
-print(f"Baseline Terminal Wealth (80-100): {base_rich:.4f}")
-print(f"Baseline Terminal Wealth (0-20):   {base_poor:.4f}")
-print(f"Calculated Dynamic Gap:            {base_gap:.4f}\n")
 
 def build_clean_table(scenario_type, param_col_name, param_field):
     scenarios = df.loc[df["Type"] == scenario_type, "Scenario"].unique()
@@ -92,13 +165,10 @@ def build_clean_table(scenario_type, param_col_name, param_field):
             m = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "40-59") & (df["Metric"] == "terminal") & (df["Scenario"] == sc), "Value"].values[0]
             p = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "0-20") & (df["Metric"] == "terminal") & (df["Scenario"] == sc), "Value"].values[0]
             
-            # Calculate Dynamic Scenario Gap
             g = r - p
-            
             param_val = df.loc[(df["Scenario"] == sc) & df[param_field].notnull(), param_field].values
             param_val = param_val[0] if len(param_val) > 0 else np.nan
 
-            # True percentage deltas
             g_pct = (g - base_gap) / (0.5 * (abs(g) + abs(base_gap)))
             r_pct = (r - base_rich) / (0.5 * (abs(r) + abs(base_rich)))
             m_pct = (m - base_med) / (0.5 * (abs(m) + abs(base_med)))
@@ -131,69 +201,40 @@ tables = {
     "Tail_Risk_Sensitivity": build_clean_table("df_t", "Degrees of Freedom", "df_t")
 }
 
-# Print and Save to CSV
 for title, tbl in tables.items():
     if not tbl.empty:
         print(f"=== {title.replace('_', ' ').upper()} ===")
         
-        # Format for printing
+        
         print_df = tbl.copy()
         for col in print_df.columns:
             if "%Δ" in col or "Elasticity" in col:
                 print_df[col] = print_df[col].map(lambda x: f"{x:.2f}" if pd.notnull(x) else "")
         print(print_df.to_string(index=False), "\n")
         
-        # Save raw numbers to CSV
-        csv_path = graph_dir / f"{title}.csv"
-        tbl.to_csv(csv_path, index=False)
-        print(f"Saved to {csv_path}\n")
+        # Save CSV
+        tbl.to_csv(graph_dir / f"{title}.csv", index=False)
+        
+       
+        unseperated_main.makeTablePretty(tbl, title.replace('_', ' '), graph_dir)
 
 # =====================================================================
-# 3. LOAD BASELINE STATE & RUN GRAPHS
+# 6. RUN ALL NATIVE GRAPHS 
 # =====================================================================
-baseline_state_path = data_dir / f"Aggregated_State_{BASELINE_V_NUM}.pkl"
-print(f"=== LOADING BASELINE STATE FOR GRAPHS ===")
-print(f"Path: {baseline_state_path}")
+print("\n=== 5. RUNNING ALL GRAPHS ===")
 
-try:
-    try:
-        with zstd.open(baseline_state_path, "rb") as f:
-            cached = pickle.load(f)
-    except:
-        with open(baseline_state_path, "rb") as f:
-            cached = pickle.load(f)
 
-    aggRes = cached["aggRes"]
-    assetResults = cached["assetResults"]
-    metric_results = cached["metric_results"]
-    households = cached["households"]
-    
-    
-    if "time" in cached:
-        time_hist = cached["time"]
-    else:
-        import datetime as dt
-        start = dt.datetime(2000, 1, 1)
-        end = dt.datetime(2025, 1, 1)
-        time_hist = pd.bdate_range(start=start, end=end).to_pydatetime().tolist()
 
-    print("Running Graphing Pipeline...")
-    
-  
-    from unseperated_main import runGraphs
-    
-    runGraphs(
-        aggRes=aggRes,
-        assetResults=assetResults,
-        time=time_hist,
-        households=households,
-        graph_dir=graph_dir,
-        metric_results=metric_results,
-        tablesNeeded=True
-    )
-    print("=== ALL GRAPHS GENERATED SUCCESSFULLY ===")
+# Run your native graphing function. 
+# metric_results_5k is passed pristine, so no data is lost.
+unseperated_main.runGraphs(
+    aggRes=aggRes,
+    assetResults=assetResults,
+    time=cfg["time"],
+    households=cfg["households"],
+    graph_dir=graph_dir,
+    metric_results=metric_results_5k,
+    tablesNeeded=True
+)
 
-except Exception as e:
-    print(f"Failed to load baseline state or run graphs: {e}")
-    import traceback
-    traceback.print_exc()
+print("\n=== PIPELINE COMPLETE. CHECK /graphs FOLDER ===")
