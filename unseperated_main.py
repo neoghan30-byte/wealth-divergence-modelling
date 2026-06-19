@@ -346,6 +346,7 @@ def _build_hist_portfolio(
     -------
     dict: household -> pd.Series (daily returns, DatetimeIndex)
     """
+    
     full_hist_index = pd.to_datetime(time_hist)
 
     # ---- Step 1: convert every asset's histRet / mu to a dated daily Series
@@ -413,6 +414,17 @@ def _build_hist_portfolio(
                 s = s.groupby(s.index).mean()
 
             # Monthly data (< 500 obs) → resample to daily via ffill
+            # if len(s) < 500:
+            #     s = s.resample("D").ffill() / 21
+            #     if verbose:
+            #         print(f"  [{ticker}] monthly → resampled to daily, "
+            #               f"length {len(s)}")
+            # else:
+            #     if verbose:
+            #         print(f"  [{ticker}] daily, length {len(s)}, "
+            #               f"mean {s.mean():.5f}")
+
+            # daily_series[ticker] = s
             if len(s) < 500:
                 s = s.resample("D").ffill() / 21
                 if verbose:
@@ -422,6 +434,10 @@ def _build_hist_portfolio(
                 if verbose:
                     print(f"  [{ticker}] daily, length {len(s)}, "
                           f"mean {s.mean():.5f}")
+
+            # FIX: Convert log returns to simple returns before portfolio aggregation
+            if globals().get('useLogs', True):
+                s = np.exp(s) - 1.0
 
             daily_series[ticker] = s
     # ---- Step 2: Create a strict intersecting index
@@ -2221,19 +2237,31 @@ def house_cum_sigma_banded_plot(assetRes, time, graphFigSize, houseHoldAssetsCol
   if sampleSummary != None:
     # sampleSummary = pd.DataFrame(sampleSummaryRows)
     makeTablePretty(sampleSummary, 'Sample Path Summary', folder)
+  # for h in households:
+  #   for path in assetRes['portSampleCum'][h]:
+  #     # plottingList[h].append(path[-1])
+  #     if h == '40-59':
+  #       plt.plot(timeLocal, path*100, color=houseHoldAssetsColoursCumPaths[h], alpha=(alpha*1.3), linewidth=0.8)
+  #     else:
+  #       plt.plot(timeLocal, path*100, color=houseHoldAssetsColoursCumPaths[h], alpha=alpha, linewidth=0.8)
+  #     # plottingList[h].append(path[-1]
+
+
+  # plt.plot([], [], label=f"{householdDisplayLabels['0-20']}") #B R G
+  # plt.plot([], [], label=f"{householdDisplayLabels['80-100']}")
+  # plt.plot([], [], label=f"{householdDisplayLabels['40-59']}")
+  zorders = {"80-100": 3, "40-59": 2, "0-20": 1}
   for h in households:
     for path in assetRes['portSampleCum'][h]:
-      # plottingList[h].append(path[-1])
       if h == '40-59':
-        plt.plot(timeLocal, path*100, color=houseHoldAssetsColoursCumPaths[h], alpha=(alpha*1.3), linewidth=0.8)
+        plt.plot(timeLocal, path*100, color=houseHoldAssetsColoursCumPaths[h], alpha=(0.2*1.3), linewidth=0.8, zorder=zorders[h])
       else:
-        plt.plot(timeLocal, path*100, color=houseHoldAssetsColoursCumPaths[h], alpha=alpha, linewidth=0.8)
-      # plottingList[h].append(path[-1]
+        plt.plot(timeLocal, path*100, color=houseHoldAssetsColoursCumPaths[h], alpha=0.2, linewidth=0.8, zorder=zorders[h])
 
-
-  plt.plot([], [], label=f"{householdDisplayLabels['0-20']}") #B R G
-  plt.plot([], [], label=f"{householdDisplayLabels['80-100']}")
-  plt.plot([], [], label=f"{householdDisplayLabels['40-59']}")
+  # FIX: Explicitly assign colors to the legend handles
+  plt.plot([], [], color=houseHoldAssetsColoursCumPaths['80-100'], label=f"{householdDisplayLabels['80-100']}")
+  plt.plot([], [], color=houseHoldAssetsColoursCumPaths['40-59'], label=f"{householdDisplayLabels['40-59']}")
+  plt.plot([], [], color=houseHoldAssetsColoursCumPaths['0-20'], label=f"{householdDisplayLabels['0-20']}")
   plt.title("Household Portfolio: Cumulative Return Paths", weight=titleWeight)
   plt.xlabel("Date")
   plt.ylabel("Cumulative Return (%)")
@@ -2258,8 +2286,11 @@ def householdVolatilityPlot(graphFigSize, houseHoldAssetsColours, assetRes, time
   x = pd.to_datetime(timeLocal)
   # x = time
   plt.figure(figsize=graphFigSize)
+  # for h in households:
+    # plt.plot(x, assetRes['portSigma'][h], label=f"{h} Household Volatility", color=houseHoldAssetsColours[h])
+  zorders = {"80-100": 3, "40-59": 2, "0-20": 1}
   for h in households:
-    plt.plot(x, assetRes['portSigma'][h], label=f"{h} Household Volatility", color=houseHoldAssetsColours[h])
+    plt.plot(x, assetRes['portSigma'][h], label=f"{h} Household Volatility", color=houseHoldAssetsColours[h], zorder=zorders[h])
   plt.title("Household Daily Volatility Over Time")
   plt.xlabel("Time")
   plt.ylabel("Volatility")
@@ -2326,10 +2357,12 @@ def plotMeanPath(meanPath, households, time, householdDisplayLabels, graphFigSiz
       
   x = pd.to_datetime(timeLocal)
 
-  for h in households:
+  # for h in households:
     # Use meanPath[h] to plot the specific array for the current household
-    plt.plot(x, meanPath[h], color=houseHoldAssetsColours[h], label=f"{householdDisplayLabels[h]}")
-
+    # plt.plot(x, meanPath[h], color=houseHoldAssetsColours[h], label=f"{householdDisplayLabels[h]}")
+  zorders = {"80-100": 3, "40-59": 2, "0-20": 1}
+  for h in households:
+    plt.plot(x, meanPath[h], color=houseHoldAssetsColours[h], label=f"{householdDisplayLabels[h]}", zorder=zorders[h])
   plt.title("Cumulative Returns: Mean Household Path", weight=titleWeight)
   plt.xlabel("Date")
   plt.ylabel("Cumulative Return %")
@@ -9310,7 +9343,12 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
           metric_results = cached["metric_results"]
           # time = cached["time"]
           households = cached["households"]
-          comparable_results_new = cached["comparable_results_new"]
+          # comparable_results_new = cached["comparable_results_new"]
+          cached_sr = cached.get("sensitivityResults", {})
+          if scenarioName in cached_sr:
+              sensitivityResults[scenarioName] = cached_sr[scenarioName]
+          elif scenarioName in cached.get("comparable_results_new", {}):
+              sensitivityResults[scenarioName] = cached["comparable_results_new"][scenarioName]
       else:
           metric_results = get_metric_analysis(
             chunk_folder=cfg["chunkFolder"],
@@ -9931,7 +9969,8 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
 
        
        
-     
+  if sensitivityResults is None:
+      sensitivityResults = {}
   
   stage = "sensitivity_run"
   failed_count = 0 
@@ -10092,7 +10131,12 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
             metric_results = cached["metric_results"]
             # time = cached["time"]
             households = cached["households"]
-            sensitivityResults = cached["sensitivityResults"]
+            # sensitivityResults = cached["sensitivityResults"]
+            cached_sr = cached.get("sensitivityResults", {})
+            if scenarioName in cached_sr:
+                sensitivityResults[scenarioName] = cached_sr[scenarioName]
+            elif scenarioName in cached.get("comparable_results_new", {}):
+                sensitivityResults[scenarioName] = cached["comparable_results_new"][scenarioName]
         else:
             print("=== ANALYSIS ===")
 
