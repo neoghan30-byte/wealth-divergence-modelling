@@ -183,7 +183,7 @@ new_baseline_comp = unseperated_main.get_comparable_results(
 )
 
 comp_dict["baseline"] = new_baseline_comp["baseline"]
-
+import unseperated_main as m
 # =====================================================================
 comparable_results = m.runSensitivityTests(
         inputParameters=None,
