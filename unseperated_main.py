@@ -2245,11 +2245,11 @@ def householdVolatilityPlot(graphFigSize, houseHoldAssetsColours, assetRes, time
   plt.gca().yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
   plt.legend(
         loc="upper right",
-        fontsize=15,          # smaller font (half if original was ~12)
-        title_fontsize=17,    # smaller title
-        handlelength=1.5,      # shorter legend lines
-        handleheight=1,    # shrink vertical size of handles
-        labelspacing=.6     # reduce vertical spacing between labels
+        fontsize=15,          
+        title_fontsize=17,    
+        handlelength=1.5,     
+        handleheight=1,    
+        labelspacing=.6     
     )
   plt.grid(True)
   plt.savefig(os.path.join(folder, "householdVolatility.png"), dpi=600)
@@ -2909,29 +2909,42 @@ def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results,
   titleWeight = 'normal'
   graphHeight = 14
   fullSavedAssetRes = assetResults
+  # plt.rcParams.update({
+  #     'font.family': 'DejaVu Sans',
+  #     'font.size': 16,
+  #     'axes.titlesize': 27,
+  # #title
+  #     'axes.labelsize': 24,
+  #     'xtick.labelsize': 16,
+  #     'ytick.labelsize': 16,
+  #     'legend.fontsize': 16,
+  #     'legend.title_fontsize': 15,
+  #     'figure.titlesize': 26,
+  #     'axes.spines.top': False,
+  #     'axes.spines.right': False,
+
+
+  #     'axes.grid': True
+
+
+
+
+  #   })
+
   plt.rcParams.update({
       'font.family': 'DejaVu Sans',
-      'font.size': 16,
-      'axes.titlesize': 27,
-  #title
-      'axes.labelsize': 24,
-      'xtick.labelsize': 16,
-      'ytick.labelsize': 16,
-      'legend.fontsize': 16,
-      'legend.title_fontsize': 15,
-      'figure.titlesize': 26,
+      'font.size': 12,             
+      'axes.titlesize': 16,        
+      'axes.labelsize': 14,        
+      'xtick.labelsize': 11,
+      'ytick.labelsize': 11,      
+      'legend.fontsize': 11,        
+      'legend.title_fontsize': 12,  
+      'figure.titlesize': 18,       
       'axes.spines.top': False,
       'axes.spines.right': False,
-
-
       'axes.grid': True
-
-
-
-
-    })
-
-
+  })
   householdDisplayLabels = {
       "0-20": "0–20th Income Percentile",
       "40-59": "40–59th Income Percentile",

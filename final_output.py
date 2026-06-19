@@ -317,6 +317,25 @@ tables = {
     "Tail_Risk_Sensitivity": build_clean_table("df_t", "Degrees of Freedom", "df_t")
 }
 
+# for title, tbl in tables.items():
+#     if not tbl.empty:
+#         print(f"=== {title.replace('_', ' ').upper()} ===")
+        
+#         print_df = tbl.copy()
+#         for col in print_df.columns:
+#             if "%Δ" in col or "Elasticity" in col:
+#                 print_df[col] = print_df[col].map(lambda x: f"{x:.2f}" if pd.notnull(x) else "")
+#             elif np.issubdtype(print_df[col].dtype, np.number):
+#                 # Format scalars like 'Degrees of Freedom' to standard strings
+#                 print_df[col] = print_df[col].map(lambda x: f"{x:.4g}" if pd.notnull(x) else "")
+                
+#         print(print_df.to_string(index=False), "\n")
+        
+#         # Save CSV
+#         tbl.to_csv(graph_dir / f"{title}.csv", index=False)
+        
+        
+#         unseperated_main.makeTablePretty(print_df, title.replace('_', ' '), graph_dir)
 for title, tbl in tables.items():
     if not tbl.empty:
         print(f"=== {title.replace('_', ' ').upper()} ===")
@@ -325,8 +344,8 @@ for title, tbl in tables.items():
         for col in print_df.columns:
             if "%Δ" in col or "Elasticity" in col:
                 print_df[col] = print_df[col].map(lambda x: f"{x:.2f}" if pd.notnull(x) else "")
-            elif np.issubdtype(print_df[col].dtype, np.number):
-                # Format scalars like 'Degrees of Freedom' to standard strings
+            elif pd.api.types.is_numeric_dtype(print_df[col]):
+                # Format scalars like 'Degrees of Freedom' to standard strings using Pandas type checker
                 print_df[col] = print_df[col].map(lambda x: f"{x:.4g}" if pd.notnull(x) else "")
                 
         print(print_df.to_string(index=False), "\n")
@@ -334,7 +353,7 @@ for title, tbl in tables.items():
         # Save CSV
         tbl.to_csv(graph_dir / f"{title}.csv", index=False)
         
-        
+        # Pass the formatted strings to makeTablePretty so it won't multiply by 100
         unseperated_main.makeTablePretty(print_df, title.replace('_', ' '), graph_dir)
 
 # =====================================================================
