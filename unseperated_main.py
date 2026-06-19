@@ -2296,35 +2296,33 @@ def plotMeanPath(meanPath, households, time, householdDisplayLabels, graphFigSiz
   plt.figure(figsize= graphFigSize)
   
   timeLocal = time.copy()
-  # if len(timeLocal) > 9130:
-  #    timeLocal = timeLocal[(len(timeLocal)-9130):]
-  sim_length = len(meanPath)
+  
+  # meanPath is a dict, get the length from the first household's array
+  sim_length = len(meanPath[households[0]])
+  
   if len(timeLocal) > sim_length:
-      print(f"NOTICE_ME! Time local is {timeLocal}, sim length {sim_length}")
       timeLocal = timeLocal[-sim_length:]
-  # if not isinstance(timeLocal, pd.datetime)
+      
   x = pd.to_datetime(timeLocal)
 
   for h in households:
-    plt.plot(x, meanPath, color=houseHoldAssetsColours[h], label=f"{householdDisplayLabels[h]}")
-
-
-  
+    # Use meanPath[h] to plot the specific array for the current household
+    plt.plot(x, meanPath[h], color=houseHoldAssetsColours[h], label=f"{householdDisplayLabels[h]}")
 
   plt.title("Cumulative Returns: Mean Household Path", weight=titleWeight)
   plt.xlabel("Date")
   plt.ylabel("Cumulative Return %")
   ax = plt.gca()
   ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
-  plt.legend(
-      [householdDisplayLabels[h] for h in households], title="HH Income Group")
+  
   plt.legend(
     loc="upper left",
-    fontsize=20,          # smaller font (half if original was ~12)
-    title_fontsize=22,    # smaller title
-    handlelength=2,      # shorter legend lines
-    handleheight=1.5,    # shrink vertical size of handles
-    labelspacing=.8     # reduce vertical spacing between labels
+    fontsize=20,          
+    title_fontsize=22,    
+    handlelength=2,      
+    handleheight=1.5,    
+    labelspacing=.8,     
+    title="HH Income Group"
   )
   plt.xticks(rotation=45)
   plt.grid(True)
@@ -2777,7 +2775,7 @@ def householdWeightsBar(
   #     "Business Wealth": ["Business Wealth", "Business Wealth S.E"]
   # }
 
-def plot_gap_geometric(labels, gaps, rich_vals, poor_vals):
+def plot_gap_geometric(labels, gaps, rich_vals, poor_vals, folder=None):
     colors = ["#1a7f37" if g > 0 else "#b22222" for g in gaps]
 
 
@@ -2829,6 +2827,9 @@ def plot_gap_geometric(labels, gaps, rich_vals, poor_vals):
 
     plt.xticks(rotation=20, ha='right')
     plt.tight_layout()
+    if folder:
+        import os
+        plt.savefig(os.path.join(folder, "Geometric_Gap_Contributions.png"), dpi=300)
     plt.show()
 
 import matplotlib.ticker as mtick
@@ -3054,30 +3055,34 @@ def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results,
     results = metric_results_streamlined
     # results = metric_results_streamlined["results"]#.get(metric_results["results"])
     # results = _streamline_results(metric_results)
-
-    if "house_cum_results" in results:
-      df = results["house_cum_results"].get("house_cum_df")
-      house_cum_sigma_banded_plot(
-        assetRes=aggRes,
-        time=time,
-        graphFigSize=graphFigSize,
-        houseHoldAssetsColoursCumPaths=houseHoldAssetsColoursCumPaths,
-        householdDisplayLabels=householdDisplayLabels,
-        titleWeight=titleWeight,
-        folder=graph_dir 
-      )
-
-      if tablesNeeded:
+  if "house_cum_results" in results:
+    df = results["house_cum_results"].get("house_cum_df")
+    try:
+        house_cum_sigma_banded_plot(
+          assetRes=aggRes,
+          time=time,
+          graphFigSize=graphFigSize,
+          houseHoldAssetsColoursCumPaths=houseHoldAssetsColoursCumPaths,
+          householdDisplayLabels=householdDisplayLabels,
+          titleWeight=titleWeight,
+          folder=graph_dir 
+        )
+    except Exception as e:
+        print(f"Warning: Cumulative paths plot failed: {e}")
+    
+    if tablesNeeded and df is not None:
         makeTablePretty(df, 'Household Cumulative Returns', graph_dir)
 
-    if "house_vol_results" in results:
+  # 2. Household Volatility
+  if "house_vol_results" in results:
       df = results["house_vol_results"].get("house_vol_df")
-      householdVolatilityPlot(graphFigSize, houseHoldAssetsColours, assetRes, time, graph_dir)
+      householdVolatilityPlot(graphFigSize, houseHoldAssetsColours, aggRes, time, graph_dir)
+      if tablesNeeded and df is not None:
+          makeTablePretty(df, 'Household Volatility', graph_dir)
 
-      if tablesNeeded:
-        makeTablePretty(df, 'Household Volatility', graph_dir)
-
-    if "asset_vol_results" in results:
+  # 3. Asset Class Volatility
+  if "asset_vol_results" in results:
+      df = results["asset_vol_results"].get("assetVol_df")
       assetClassVolatilityBar(
           graphFigSize=graphFigSize,
           fullSavedAssetRes=assetResults,
@@ -3085,101 +3090,126 @@ def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results,
           titleWeight=titleWeight,
           folder=graph_dir
       )
+      if tablesNeeded and df is not None:
+          makeTablePretty(df, 'Asset Class Volatility', graph_dir)
 
-    if "mean_household_results" in results:
+  # 4. Mean Paths
+  if "mean_household_results" in results:
       df = results["mean_household_results"].get("meanSummary_df")
-      mean_path = results["mean_household_results"].get(
-          "meanPath",
-          results["mean_household_results"].get("mean_path")
-      )
+      mean_path = results["mean_household_results"].get("meanPath", results["mean_household_results"].get("mean_path"))
+      
+      if mean_path is not None:
+          plotMeanPath(
+            meanPath=mean_path,
+            households=households,
+            time=time,
+            householdDisplayLabels=householdDisplayLabels,
+            graphFigSize=graphFigSize,
+            houseHoldAssetsColours=houseHoldAssetsColours,
+            titleWeight=titleWeight,
+            folder=graph_dir
+          )
+      if tablesNeeded and df is not None:
+          makeTablePretty(df, 'Mean Path Final Returns', graph_dir)
 
-      plotMeanPath(
-        meanPath=mean_path,
-        households=households,
-        time=time,
-        householdDisplayLabels=householdDisplayLabels,
-        graphFigSize=graphFigSize,
-        houseHoldAssetsColours=houseHoldAssetsColours,
-        titleWeight=titleWeight,
-        folder=graph_dir
-      )
+  # 5. Geometric Gap Results
+  if "gap_geometric_results" in results:
+      results_raw = results["gap_geometric_results"].get("raw", results["gap_geometric_results"])
+      labels = results_raw.get("labels")
+      rich_vals = results_raw.get("rich_vals")
+      poor_vals = results_raw.get("poor_vals")
+      gaps = results_raw.get("gaps")
+      summary_df = results["gap_geometric_results"].get("summary_df")
 
-    if "gap_geometric_results" in results:
-       results_raw = results["gap_geometric_results"].get(
-           "raw",
-           results["gap_geometric_results"]
-       )
-       labels = results_raw.get("labels")
-       rich_vals = results_raw.get("rich_vals")
-       poor_vals = results_raw.get("poor_vals")
-       summary_df = results["gap_geometric_results"].get("summary_df")
-
-       if tablesNeeded:
+      if tablesNeeded and summary_df is not None:
           makeTablePretty(summary_df, "Geometric Wealth Gap Summary", graph_dir)
+          
+      if gaps is not None and labels is not None:
+          try:
+              plot_gap_geometric(labels, gaps, rich_vals, poor_vals, folder=graph_dir)
+          except Exception as e:
+              print(f"Warning: Geometric contribution plot failed: {e}")
 
-    if "gap_results" in results:
-        pairs = results["gap_results"].get("pairs")
-        summmary_df = results["gap_results"].get("summary_df")
-        prob_positive = results["gap_results"].get("prob_positive")
+  # 6. Overall Gap Dist
+  if "gap_results" in results:
+      pairs = results["gap_results"].get("pairs")
+      summary_df = results["gap_results"].get("summary_df")
+      prob_positive = results["gap_results"].get("prob_positive")
+      
+      if pairs is not None and summary_df is not None:
+          plot_wealth_gap_dist(pairs, summary_df, prob_positive, graph_dir)
 
-        plot_wealth_gap_dist(pairs, summmary_df, prob_positive, graph_dir)
-
+  # 7. Validation Data Blocks
+  path_number = "" # Safety initialization to prevent UnboundLocalError!
+  
   if "validation" in metric_results_streamlined:
       validation_results = metric_results_streamlined["validation"]
-      # if tablesNeeded:
-        # makeTablePretty(backtest_df, 'Asset Class Volatility', graph_dir)
+      
       if "convergence_results" in validation_results:
-        convergence_df = validation_results["convergence_results"].get("convergence_df")
-        path_number = validation_results["convergence_results"].get("path_number")
-        plot_monte_carlo_convergence(convergence_df, graph_dir, households, path_number)
+          convergence_df = validation_results["convergence_results"].get("convergence_df")
+          path_number = validation_results["convergence_results"].get("path_number", "")
+          if convergence_df is not None:
+              plot_monte_carlo_convergence(convergence_df, graph_dir, households, path_number)
         
       if "back_test_results" in validation_results:
           backtest_df = validation_results["back_test_results"].get("backtest_df")
           backtest_raw = validation_results["back_test_results"].get("backtest_raw")
-          sim_low_pct = validation_results["back_test_results"].get("sim_low_pct")
-          sim_high_pct = validation_results["back_test_results"].get("sim_high_pct")
-          backtest_distribution_plot(backtest_df, households, backtest_raw, sim_low_pct, sim_high_pct, path_number, graph_dir)
+          sim_low_pct = validation_results["back_test_results"].get("sim_low_pct", 5.0)
+          sim_high_pct = validation_results["back_test_results"].get("sim_high_pct", 95.0)
+          
+          if backtest_raw is not None:
+              backtest_distribution_plot(backtest_df, households, backtest_raw, sim_low_pct, sim_high_pct, path_number, graph_dir)
 
       if "crps_results" in validation_results:
-        crps_scores = validation_results["crps_results"].get("crps_scores")
-        crps_per_window = validation_results["crps_results"].get("crps_per_window")
-        CRPS_bar_chart(crps_scores, crps_per_window, graph_dir)
-        crps_df = validation_results["crps_results"].get("crps_df")
-        if tablesNeeded:
-          _make_table_pretty(crps_df, "CRPS Summary", folder)
+          crps_scores = validation_results["crps_results"].get("crps_scores")
+          crps_per_window = validation_results["crps_results"].get("crps_per_window")
+          
+          if crps_scores is not None and crps_per_window is not None:
+              CRPS_bar_chart(crps_scores, crps_per_window, graph_dir)
+          
+          crps_df = validation_results["crps_results"].get("crps_df")
+          if tablesNeeded and crps_df is not None:
+              _make_table_pretty(crps_df, "CRPS Summary", folder)
         
       if "band_results" in validation_results:
-        coverage_df = validation_results["band_results"].get("coverage_df")
-        sim_one_year = validation_results["convergence_results"].get("sim_horizon")
-        hist_one_year = validation_results["convergence_results"].get("hist_horizon")
-        band_names = validation_results["band_results"].get("band_names")
-        expected = validation_results["band_results"].get("expected")
-        coverage = validation_results["band_results"].get("coverage_raw")
-        getHeatMap(
-          households = households,
-          coverage_df = coverage_df,
-          coverage = coverage,
-          sim_one_year= sim_one_year,
-          hist_one_year= hist_one_year,
-          band_names = band_names,
-          expected = expected,
-          folder = graph_dir
+          coverage_df = validation_results["band_results"].get("coverage_df")
+          sim_one_year = validation_results.get("convergence_results", {}).get("sim_horizon")
+          hist_one_year = validation_results.get("convergence_results", {}).get("hist_horizon")
+          band_names = validation_results["band_results"].get("band_names")
+          expected = validation_results["band_results"].get("expected")
+          coverage = validation_results["band_results"].get("coverage_raw")
+          
+          if coverage is not None and expected is not None:
+              getHeatMap(
+                households = households,
+                coverage_df = coverage_df,
+                coverage = coverage,
+                sim_one_year= sim_one_year,
+                hist_one_year= hist_one_year,
+                band_names = band_names,
+                expected = expected,
+                folder = graph_dir
+              )
+          if tablesNeeded and coverage_df is not None:
+              _make_table_pretty(coverage_df, "Multi-Band Backtest Coverage", graph_dir)
 
-        )
-        if tablesNeeded:
-          _make_table_pretty(coverage_df, "Multi-Band Backtest Coverage", graph_dir)
+    # 8. Weight Inputs Block
   if "inputs" in metric_results_streamlined:
-    # input_results = metric_results.get("inputs")
-    asset_weight_inputs = metric_results_streamlined.get("inputs")
-    assets = asset_weight_inputs.get("assetsCompleted", asset_weight_inputs.get("assets", None))
-    getWeightsTable(asset_weight_inputs, graphHeight)
-    asset_weights_raw = asset_weight_inputs.get("assetWeights", asset_weight_inputs.get("asset_weights"))
-
-    try:
-        householdWeightsBar(asset_weights_raw, assets, households, houseHoldAssetsColours, graphFigSize, aggRes)
-    except Exception as e:
-        print("[WARN] householdWeightsBar failed:", e)
-        # pass
+      asset_weight_inputs = metric_results_streamlined.get("inputs")
+      assets = asset_weight_inputs.get("assetsCompleted", asset_weight_inputs.get("assets", None))
+      
+      try:
+          getWeightsTable(asset_weight_inputs, graphHeight)
+      except Exception as e:
+          print(f"Warning: getWeightsTable failed: {e}")
+          
+      asset_weights_raw = asset_weight_inputs.get("assetWeights", asset_weight_inputs.get("asset_weights"))
+      
+      try:
+          if asset_weights_raw is not None and assets is not None:
+              householdWeightsBar(asset_weights_raw, assets, households, houseHoldAssetsColours, graphFigSize, aggRes)
+      except Exception as e:
+          print(f"[WARN] householdWeightsBar failed: {e}")    # pass
 
 
     # ================================================================================
