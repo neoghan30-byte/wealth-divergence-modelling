@@ -2704,12 +2704,16 @@ def householdWeightsBar(
   plt.figure(figsize=graphFigSize)
 
 
+  # houseHoldColours = {
+  #     "80-100": "tab:green",
+  #     "0-20": "tab:blue",
+  #     "40-59": "tab:red"
+  # }
   houseHoldColours = {
-      "80-100": "tab:green",
-      "0-20": "tab:blue",
-      "40-59": "tab:red"
-  }
-
+        "80-100": "tab:red",
+        "0-20": "tab:blue",
+        "40-59": "tab:green"
+    }
 
   valuesTotal = {}
   for i, h in enumerate(households):

@@ -195,7 +195,14 @@ comparable_results = m.runSensitivityTests(
         sensitivityResults=new_baseline_comp,
         nPaths=5000
     )
-comp_dict = comparable_results
+if isinstance(comparable_results, dict) and "comparable_results" in comparable_results:
+    comp_dict = comparable_results["comparable_results"]
+else:
+    comp_dict = comparable_results
+print("Keys in comp_dict:", list(comp_dict.keys()))
+if "baseline" in comp_dict:
+    print("Baseline keys:", list(comp_dict["baseline"].keys()))
+# comp_dict = comparable_results
 # =====================================================================
 # 5. CALCULATE DYNAMIC GAPS & GENERATE TABLES
 # =====================================================================
