@@ -3139,78 +3139,74 @@ def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results,
       if pairs is not None and summary_df is not None:
           plot_wealth_gap_dist(pairs, summary_df, prob_positive, graph_dir)
 
-  # 7. Validation Data Blocks
-  path_number = "" # Safety initialization to prevent UnboundLocalError!
+  # 7. Validation Data Blocks (Now accessing the flattened dict directly)
+  path_number = "" # Safety initialization
   
-  if "validation" in metric_results_streamlined:
-      validation_results = metric_results_streamlined["validation"]
+  if "convergence_results" in results:
+      convergence_df = results["convergence_results"].get("convergence_df")
+      path_number = results["convergence_results"].get("path_number", "")
+      if convergence_df is not None:
+          plot_monte_carlo_convergence(convergence_df, graph_dir, households, path_number)
+    
+  if "back_test_results" in results:
+      backtest_df = results["back_test_results"].get("backtest_df")
+      backtest_raw = results["back_test_results"].get("backtest_raw")
+      sim_low_pct = results["back_test_results"].get("sim_low_pct", 5.0)
+      sim_high_pct = results["back_test_results"].get("sim_high_pct", 95.0)
       
-      if "convergence_results" in validation_results:
-          convergence_df = validation_results["convergence_results"].get("convergence_df")
-          path_number = validation_results["convergence_results"].get("path_number", "")
-          if convergence_df is not None:
-              plot_monte_carlo_convergence(convergence_df, graph_dir, households, path_number)
-        
-      if "back_test_results" in validation_results:
-          backtest_df = validation_results["back_test_results"].get("backtest_df")
-          backtest_raw = validation_results["back_test_results"].get("backtest_raw")
-          sim_low_pct = validation_results["back_test_results"].get("sim_low_pct", 5.0)
-          sim_high_pct = validation_results["back_test_results"].get("sim_high_pct", 95.0)
-          
-          if backtest_raw is not None:
-              backtest_distribution_plot(backtest_df, households, backtest_raw, sim_low_pct, sim_high_pct, path_number, graph_dir)
+      if backtest_raw is not None:
+          backtest_distribution_plot(backtest_df, households, backtest_raw, sim_low_pct, sim_high_pct, path_number, graph_dir)
 
-      if "crps_results" in validation_results:
-          crps_scores = validation_results["crps_results"].get("crps_scores")
-          crps_per_window = validation_results["crps_results"].get("crps_per_window")
-          
-          if crps_scores is not None and crps_per_window is not None:
-              CRPS_bar_chart(crps_scores, crps_per_window, graph_dir)
-          
-          crps_df = validation_results["crps_results"].get("crps_df")
-          if tablesNeeded and crps_df is not None:
-              _make_table_pretty(crps_df, "CRPS Summary", folder)
-        
-      if "band_results" in validation_results:
-          coverage_df = validation_results["band_results"].get("coverage_df")
-          sim_one_year = validation_results.get("convergence_results", {}).get("sim_horizon")
-          hist_one_year = validation_results.get("convergence_results", {}).get("hist_horizon")
-          band_names = validation_results["band_results"].get("band_names")
-          expected = validation_results["band_results"].get("expected")
-          coverage = validation_results["band_results"].get("coverage_raw")
-          
-          if coverage is not None and expected is not None:
-              getHeatMap(
-                households = households,
-                coverage_df = coverage_df,
-                coverage = coverage,
-                sim_one_year= sim_one_year,
-                hist_one_year= hist_one_year,
-                band_names = band_names,
-                expected = expected,
-                folder = graph_dir
-              )
-          if tablesNeeded and coverage_df is not None:
-              _make_table_pretty(coverage_df, "Multi-Band Backtest Coverage", graph_dir)
-
-    # 8. Weight Inputs Block
-  if "inputs" in metric_results_streamlined:
-      asset_weight_inputs = metric_results_streamlined.get("inputs")
-      assets = asset_weight_inputs.get("assetsCompleted", asset_weight_inputs.get("assets", None))
+  if "crps_results" in results:
+      crps_scores = results["crps_results"].get("crps_scores")
+      crps_per_window = results["crps_results"].get("crps_per_window")
       
-      try:
-          getWeightsTable(asset_weight_inputs, graphHeight)
-      except Exception as e:
-          print(f"Warning: getWeightsTable failed: {e}")
-          
-      asset_weights_raw = asset_weight_inputs.get("assetWeights", asset_weight_inputs.get("asset_weights"))
+      if crps_scores is not None and crps_per_window is not None:
+          CRPS_bar_chart(crps_scores, crps_per_window, graph_dir)
       
-      try:
-          if asset_weights_raw is not None and assets is not None:
-              householdWeightsBar(asset_weights_raw, assets, households, houseHoldAssetsColours, graphFigSize, aggRes)
-      except Exception as e:
-          print(f"[WARN] householdWeightsBar failed: {e}")    # pass
+      crps_df = results["crps_results"].get("crps_df")
+      if tablesNeeded and crps_df is not None:
+          _make_table_pretty(crps_df, "CRPS Summary", folder)
+    
+  if "band_results" in results:
+      coverage_df = results["band_results"].get("coverage_df")
+      # Convergence results is at the same flat level now
+      sim_one_year = results.get("convergence_results", {}).get("sim_horizon")
+      hist_one_year = results.get("convergence_results", {}).get("hist_horizon")
+      band_names = results["band_results"].get("band_names")
+      expected = results["band_results"].get("expected")
+      coverage = results["band_results"].get("coverage_raw")
+      
+      if coverage is not None and expected is not None:
+          getHeatMap(
+            households = households,
+            coverage_df = coverage_df,
+            coverage = coverage,
+            sim_one_year = sim_one_year,
+            hist_one_year = hist_one_year,
+            band_names = band_names,
+            expected = expected,
+            folder = graph_dir
+          )
+      if tablesNeeded and coverage_df is not None:
+          _make_table_pretty(coverage_df, "Multi-Band Backtest Coverage", graph_dir)
 
+  # 8. Weight Inputs Block
+  assets = results.get("assetsCompleted", results.get("assets", None))
+  asset_weights_raw = results.get("assetWeights", results.get("asset_weights"))
+  
+  try:
+      # getWeightsTable looks for an inputs dict with "assetWeights" inside.
+      # Because results is flattened, results["assetWeights"] satisfies this perfectly!
+      getWeightsTable(results, graphHeight)
+  except Exception as e:
+      print(f"Warning: getWeightsTable failed: {e}")
+      
+  try:
+      if asset_weights_raw is not None and assets is not None:
+          householdWeightsBar(asset_weights_raw, assets, households, houseHoldAssetsColours, graphFigSize, aggRes)
+  except Exception as e:
+      print(f"[WARN] householdWeightsBar failed: {e}")
 
     # ================================================================================
   
