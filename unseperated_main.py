@@ -1435,7 +1435,7 @@ def CRPS_bar_chart(crps_scores, crps_per_window, folder):
     # Right: box plot of CRPS distribution across historical windows
     ax2 = axes[1]
     data   = [crps_per_window[h] * 100 for h in hs]
-    bp     = ax2.boxplot(data, labels=hs, patch_artist=True, notch=False)
+    bp     = ax2.boxplot(data, patch_artist=True, notch=False)
     for patch, col in zip(bp["boxes"], cols):
         patch.set_facecolor(col)
         patch.set_alpha(0.6)
@@ -1447,7 +1447,7 @@ def CRPS_bar_chart(crps_scores, crps_per_window, folder):
 
     fig.suptitle(
         "Continuous Ranked Probability Score (CRPS)\n"
-        "Simulated 1-Year Return Distribution vs Historical Observations",
+        "Simulated 5-Year Return Distribution vs Historical Observations",
         fontsize=14, fontweight="bold"
     )
     plt.tight_layout()
@@ -6167,10 +6167,10 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
         print(f"WARNING: Using independent noise (minLen={minLen}, n_assets={len(closeDict)})")
 
   if closeDict:
-    # Find minimum length across all arrays to ensure alignment
+    # Fensure alignment
     minLen = min(len(v) for v in closeDict.values())
 
-    # Trim all arrays to same length
+    
     for ticker in closeDict:
         closeDict[ticker] = closeDict[ticker][-minLen:]
 
@@ -6219,7 +6219,7 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
 
               monthlyData[ticker] = s
 
-  #  Only create DataFrame if we have data
+  #  Only create DataFrame if have data
   if monthlyData:
       dfMonthly = pd.DataFrame(monthlyData).dropna()
       if len(dfMonthly) < 2:
