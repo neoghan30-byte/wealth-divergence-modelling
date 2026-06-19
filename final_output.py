@@ -289,17 +289,18 @@ def build_clean_table(scenario_type, param_col_name, param_field):
             r_pct = (r - base_rich) / base_rich
             m_pct = (m - base_med) / base_med
             p_pct = (p - base_poor) / base_poor
-            input_delta = (param_val - 1.0) if scenario_type in ["returns", "volatility"] else np.nan
+            input_delta = (param_val - 1.0) #if scenario_type in ["returns", "volatility"] else np.nan
             elas = (g_pct / input_delta) if (input_delta != 0 and not np.isnan(input_delta)) else np.nan
 
             rows.append({
                 "Scenario": sc,
                 param_col_name: param_val,
-                "Gap %Δ": g_pct,
+                "Gap %Δ": g_pct * 100,
+                "80-100 TW %Δ": r_pct * 100,
+                "40-59 TW %Δ": m_pct * 100,
+                "0-20 TW %Δ": p_pct * 100,
                 "Gap Elasticity": elas,
-                "80-100 TW %Δ": r_pct,
-                "40-59 TW %Δ": m_pct,
-                "0-20 TW %Δ": p_pct
+
             })
         except IndexError:
             continue 
@@ -320,18 +321,21 @@ for title, tbl in tables.items():
     if not tbl.empty:
         print(f"=== {title.replace('_', ' ').upper()} ===")
         
-        
         print_df = tbl.copy()
         for col in print_df.columns:
             if "%Δ" in col or "Elasticity" in col:
                 print_df[col] = print_df[col].map(lambda x: f"{x:.2f}" if pd.notnull(x) else "")
+            elif np.issubdtype(print_df[col].dtype, np.number):
+                # Format scalars like 'Degrees of Freedom' to standard strings
+                print_df[col] = print_df[col].map(lambda x: f"{x:.4g}" if pd.notnull(x) else "")
+                
         print(print_df.to_string(index=False), "\n")
         
         # Save CSV
         tbl.to_csv(graph_dir / f"{title}.csv", index=False)
         
-       
-        unseperated_main.makeTablePretty(tbl, title.replace('_', ' '), graph_dir)
+        
+        unseperated_main.makeTablePretty(print_df, title.replace('_', ' '), graph_dir)
 
 # =====================================================================
 # 6. RUN ALL NATIVE GRAPHS 

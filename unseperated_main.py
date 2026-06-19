@@ -2336,19 +2336,22 @@ def summaryTableShow(aggRes):
   makeTablePretty(summary, "Summary", folder, col_width=4)
   
 
-def getWeightsTable(inputs, graphHeight):
+def getWeightsTable(inputs, graphHeight, folder):
+  assetWeights = inputs.get("assetWeights", inputs.get("asset_weights"))
+  assetsCompleted = inputs.get("assetsCompleted", inputs.get("assets"))
+  
+  if assetWeights is None or assetsCompleted is None: 
+      return
+      
   inputs["assetWeights"] = assetWeights
-  houseClassWeights = assetWeights #inputs["assetWeights"]
+  houseClassWeights = assetWeights 
   houseTable = []
   midHouseTable = []
   lowHouseTable = []
   tickersFlat = []
 
-
-
-
   for assetClass, tickers in assetsCompleted.items():
-      # highWeights = []
+
       # midWeights = []
       # lowWeights = []
       # Difference1 = []
@@ -3190,7 +3193,7 @@ def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results,
           )
       if tablesNeeded and coverage_df is not None:
           _make_table_pretty(coverage_df, "Multi-Band Backtest Coverage", graph_dir)
-
+  
   # 8. Weight Inputs Block
   assets = results.get("assetsCompleted", results.get("assets", None))
   asset_weights_raw = results.get("assetWeights", results.get("asset_weights"))
@@ -3198,7 +3201,7 @@ def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results,
   try:
       # getWeightsTable looks for an inputs dict with "assetWeights" inside.
       # Because results is flattened, results["assetWeights"] satisfies this perfectly!
-      getWeightsTable(results, graphHeight)
+      getWeightsTable(results, graphHeight, folder)
   except Exception as e:
       print(f"Warning: getWeightsTable failed: {e}")
       
