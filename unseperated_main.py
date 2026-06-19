@@ -494,16 +494,27 @@ def _rolling_one_year(series_values: np.ndarray, window=252) -> np.ndarray:
 
 def _make_table_pretty(df, name, folder, fontsize=13):
     """Render a DataFrame as a styled matplotlib table and save it."""
-    def smartRound(y, maxDec=4):
-        x = y
-        if pd.isnull(x):
+    # def smartRound(y, maxDec=4):
+    #     x = y
+    #     if pd.isnull(x):
+    #       return ""
+    #     if x == 0:
+    #       return 0
+    #     if isinstance(x, (int, np.integer)):
+    #       return x
+    #     return round(x, maxDec)
+    def smartRound(y):
+      if pd.isnull(y):
           return ""
-        if x == 0:
-          return 0
-        if isinstance(x, (int, np.integer)):
-          return x
-        return round(x, maxDec)
-
+      if isinstance(y, str):
+          return y
+      if y == 0:
+          return "0.00"
+      if isinstance(y, (int, np.integer)):
+          return str(y)
+      
+    
+      return f"{y * 100:.3f}"
 
     dfRound = df.copy()
     for col in dfRound.select_dtypes(include=[np.number]):
@@ -1931,6 +1942,7 @@ def get_metric_analysis(
     sim_low_pct: float = 5.0,
     sim_high_pct: float = 95.0,
     save_folder: str = None,
+    horizon_years: str = 1,
     debugMetrics: bool = False, 
     ):
   
@@ -1943,7 +1955,7 @@ def get_metric_analysis(
       households = households,
       time_hist = time_hist,
       V_num = V_num,
-      horizon_years=5
+      horizon_years= horizon_years
   )
   hist_horizon = convergence_results["raw"].get("hist_horizon")
   sim_horizon = convergence_results["raw"].get("sim_horizon")
@@ -2015,7 +2027,7 @@ def get_metric_analysis(
 #=========================================================
 # Graphing
 #========================================================
-def getHeatMap(households, coverage_df, coverage, sim_one_year, hist_one_year, band_names, expected, folder):
+def getHeatMap(households, coverage_df, coverage, sim_one_year, hist_one_year, band_names, expected, folder, horizon_years=1):
     fig, ax = plt.subplots(figsize=(10, 4 + 0.6 * len(households)))
 
     matrix     = np.array([[coverage[h][b] for b in band_names] for h in households])
@@ -2045,7 +2057,7 @@ def getHeatMap(households, coverage_df, coverage, sim_one_year, hist_one_year, b
 
     ax.set_title(
         "Backtest Calibration Heatmap\n"
-        "Coverage of historical 1-year returns inside simulated bands\n"
+        f"Coverage of historical {horizon_years}-year returns inside simulated bands\n"
         "(Green = over-coverage, Red = under-coverage vs expected)",
         fontsize=13, fontweight="bold"
     )
@@ -2119,18 +2131,27 @@ def plot_wealth_gap_dist(pairs, summary_df, prob_positive, folder, rich="80-100"
 
 def makeTablePretty(df, name, folder, fontsize=16, col_width=4, row_height=1, header_color='darkslategray', row_colors=['lightgray', 'w'], edge_color='w'):
 
-  def smartRound(y, maxDec=7):
-    x = y
-    if pd.isnull(x):
-      return ""
-    if x == 0:
-      return 0
-    mag = -int(np.floor(np.log10(abs(x))))
-    decimals = max(0, min(mag, maxDec))
-    fractionRes = round(x, decimals + 2)
-    result = fractionRes * 100
-    return result
-
+  # def smartRound(y, maxDec=7):
+  #   x = y
+  #   if pd.isnull(x):
+  #     return ""
+  #   if x == 0:
+  #     return 0
+  #   mag = -int(np.floor(np.log10(abs(x))))
+  #   decimals = max(0, min(mag, maxDec))
+  #   fractionRes = round(x, decimals + 2)
+  #   result = fractionRes * 100
+  #   return result
+  def smartRound(y):
+    if pd.isnull(y):
+        return ""
+    if y == 0:
+        return "0.00"
+    if isinstance(y, (int, np.integer)):
+        return str(y)
+    
+  
+    return f"{y * 100:.4f}"
 
   dfRound = df.copy()
   for col in dfRound.select_dtypes(include=[np.number]):
@@ -2274,7 +2295,7 @@ def assetClassVolatilityBar(graphFigSize, fullSavedAssetRes, assetClassColours, 
   plt.bar(labelList, sigmaList, color=colourList)
   plt.title(f"Mean Asset Class Volatility", weight=titleWeight)
   plt.xlabel("Asset Class")
-  plt.xticks(labelList, rotation=35, ha='right' )
+  plt.xticks(labelList, rotation=45, ha='right' )
   plt.ylabel("Volatility")
   plt.gca().yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
   plt.legend(
@@ -2390,7 +2411,7 @@ def getWeightsTable(inputs, graphHeight, folder):
   # Or, iterate through columns if using a lambda with conditional formatting
   for col in numeric_cols:
       weightDF[col] = weightDF[col].map(
-          lambda x: f"{x:.3f}" if pd.notnull(x) and isinstance(x, (int, float)) else ""
+          lambda x: f"{x:.2f}" if pd.notnull(x) and isinstance(x, (int, float)) else ""
       )
 
 
@@ -2724,7 +2745,7 @@ def householdWeightsBar(
 
 
 
-  plt.xticks(x + width, plot_categories, rotation=25, ha='right')
+  plt.xticks(x + width, plot_categories, rotation=35, ha='right')
   plt.ylabel("Allocation (%)")
   ax = plt.gca()
   ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
@@ -2744,12 +2765,12 @@ def householdWeightsBar(
 
   plt.legend(
       loc="upper right",
-      fontsize=16,          #
-      title_fontsize=18,    # smaller title
-      handlelength=3,      # shorter legend lines
-      handleheight=3,    # shrink vertical size of handles
+      fontsize=16,          
+      title_fontsize=18,   
+      handlelength=3,     
+      handleheight=3,    
       labelspacing=0.9,
-      title='HH Income Group' # reduce vertical spacing between labels
+      title='HH Income Group' 
   )
   plt.tight_layout()
   plt.show()
@@ -3948,7 +3969,7 @@ def setup():
           "largeCapTicker": '^125904-USD-STRD'
       },
       "Chunks": {
-          "totalPaths": 10000,
+          "totalPaths": 5000,
           "chunkSize": 100,
       },
       "Correlation Modifier": {
@@ -8620,15 +8641,25 @@ def getGraphs():
   def makeTablePretty(df, name, folder, fontsize=16, col_width=4, row_height=1, header_color='darkslategray', row_colors=['lightgray', 'w'], edge_color='w'):
 
 
-      def smartRound(y, maxDec=7):
-        x = y
-        if pd.isnull(x):
-          return ""
-        if x == 0:
-          return 0
-        mag = -int(np.floor(np.log10(abs(x))))
-        decimals = max(0, min(mag, maxDec))
-        return round(x, decimals + 2)
+      # def smartRound(y, maxDec=7):
+      #   x = y
+      #   if pd.isnull(x):
+      #     return ""
+      #   if x == 0:
+      #     return 0
+      #   mag = -int(np.floor(np.log10(abs(x))))
+      #   decimals = max(0, min(mag, maxDec))
+      #   return round(x, decimals + 2)
+      def smartRound(y):
+        if pd.isnull(y):
+            return ""
+        if y == 0:
+            return "0.00"
+        if isinstance(y, (int, np.integer)):
+            return str(y)
+        
+      
+        return f"{y * 100:.3f}"
 
 
       dfRound = df.copy()

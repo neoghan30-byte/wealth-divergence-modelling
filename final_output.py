@@ -5,7 +5,7 @@ import copy
 import numpy as np
 import pandas as pd
 from pathlib import Path
-
+currentRun = 27
 # Import your main file
 import unseperated_main
 
@@ -185,8 +185,17 @@ new_baseline_comp = unseperated_main.get_comparable_results(
 comp_dict["baseline"] = new_baseline_comp["baseline"]
 
 # =====================================================================
-
-
+comparable_results = m.runSensitivityTests(
+        inputParameters=None,
+        scenarios=None,
+        metric_config=None,
+        V_num=f"sensitivityDebug{currentRun}",
+        testOneChunk=False,
+        selection=None,
+        sensitivityResults=new_baseline_comp,
+        nPaths=5000
+    )
+comp_dict = comparable_results
 # =====================================================================
 # 5. CALCULATE DYNAMIC GAPS & GENERATE TABLES
 # =====================================================================
@@ -266,6 +275,8 @@ for sc in [
     print(sc, get_gap(df, sc))
 def build_clean_table(scenario_type, param_col_name, param_field):
     scenarios = df.loc[df["Type"] == scenario_type, "Scenario"].unique()
+    baseline_param_vals = df.loc[(df["Scenario"] == "baseline") & df[param_field].notnull(), param_field].values
+    baseline_param = baseline_param_vals[0] if len(baseline_param_vals) > 0 else 1.0
     rows = []
     for sc in scenarios:
         if sc == "baseline": continue
@@ -278,18 +289,22 @@ def build_clean_table(scenario_type, param_col_name, param_field):
             g = get_gap(df, sc)
             param_val = df.loc[(df["Scenario"] == sc) & df[param_field].notnull(), param_field].values
             param_val = param_val[0] if len(param_val) > 0 else np.nan
-
+            
             # g_pct = (g - base_gap) / (0.5 * (abs(g) + abs(base_gap)))
             # r_pct = (r - base_rich) / (0.5 * (abs(r) + abs(base_rich)))
             # m_pct = (m - base_med) / (0.5 * (abs(m) + abs(base_med)))
             # p_pct = (p - base_poor) / (0.5 * (abs(p) + abs(base_poor)))
 
             # g_pct = (g - base_gap) / (0.5 * (abs(g) + abs(base_gap)))
+            # Calculate elasticity using the dynamic baseline parameter
+            # input_delta = (param_val - baseline_param) / baseline_param if baseline_param != 0 else (param_val - baseline_param)
+            # elas = (g_pct / input_delta) if (input_delta != 0 and not np.isnan(input_delta)) else np.nan
+
             g_pct = (g - base_gap) / base_gap
             r_pct = (r - base_rich) / base_rich
             m_pct = (m - base_med) / base_med
             p_pct = (p - base_poor) / base_poor
-            input_delta = (param_val - 1.0) #if scenario_type in ["returns", "volatility"] else np.nan
+            input_delta = (param_val - baseline_param) / baseline_param if baseline_param != 0 else (param_val - baseline_param)
             elas = (g_pct / input_delta) if (input_delta != 0 and not np.isnan(input_delta)) else np.nan
 
             rows.append({
