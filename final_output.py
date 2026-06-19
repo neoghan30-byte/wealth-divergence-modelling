@@ -21,6 +21,7 @@ def safe_load(file_path):
 # =====================================================================
 # 1. CONFIGURATION
 # =====================================================================
+
 SENSITIVITY_V_NUM = "sensitivityDebug27"
 TARGET_PATHS = 5000
 
@@ -294,11 +295,11 @@ def build_clean_table(scenario_type, param_col_name, param_field):
             rows.append({
                 "Scenario": sc,
                 param_col_name: param_val,
-                "Gap %Δ": g_pct * 100.0,
+                "Gap %Δ": g_pct,
                 "Gap Elasticity": elas,
-                "80-100 TW %Δ": r_pct * 100.0,
-                "40-59 TW %Δ": m_pct * 100.0,
-                "0-20 TW %Δ": p_pct * 100.0
+                "80-100 TW %Δ": r_pct,
+                "40-59 TW %Δ": m_pct,
+                "0-20 TW %Δ": p_pct
             })
         except IndexError:
             continue 
