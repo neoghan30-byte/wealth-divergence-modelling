@@ -3,6 +3,8 @@ import unseperated_main as m
 import pandas as pd
 import numpy as np
 
+import copy 
+import datetime as dt 
 
 def diagnose(coeffs_dict, assets_completed, time_hist):
     full_hist_index = pd.to_datetime(time_hist)
