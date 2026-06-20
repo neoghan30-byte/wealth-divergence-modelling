@@ -335,6 +335,13 @@ def _sorted_chunk_files(chunk_folder: str, V_num) -> list:
 # Back Tests / Validation
 #===================================================================
 
+def _asset_class_of(ticker, assets_completed):
+    for asset_class, tickers in assets_completed.items():
+        if ticker in tickers:
+            return asset_class
+    return None
+
+
 def _build_hist_portfolio(
     coeffs_dict, assets_completed, asset_weights, households, time_hist,
     trading_days_per_year=252, verbose=False
@@ -381,12 +388,20 @@ def _build_hist_portfolio(
 
                   continue
 
+            # Track whether this came from a monthly-cadence source (no real
+            # DatetimeIndex attached) so we can assign dates at the correct
+            # monthly frequency below, rather than assuming daily.
+            was_monthly_source = isinstance(raw, (pd.Series, pd.DataFrame)) and not isinstance(
+                (raw.index if isinstance(raw, (pd.Series, pd.DataFrame)) else None), pd.DatetimeIndex
+            )
+
             # Normalise to pd.Series
             if isinstance(raw, pd.DataFrame):
                 s = raw.iloc[:, 0].copy()
             elif isinstance(raw, np.ndarray):
                 # Assign to the tail of the master index (convention from main script)
                 s = pd.Series(raw.ravel(), index=full_hist_index[-len(raw):])
+                was_monthly_source = False
             elif isinstance(raw, pd.Series):
                 s = raw.copy()
             else:
@@ -408,7 +423,13 @@ def _build_hist_portfolio(
 
             # Ensure DatetimeIndex
             if not isinstance(s.index, pd.DatetimeIndex):
-                s.index = full_hist_index[-len(s):]
+               
+                if was_monthly_source:
+                    anchor = full_hist_index[-1].to_period("M").to_timestamp("M")
+                    month_ends = pd.date_range(end=anchor, periods=len(s), freq="ME")
+                    s.index = month_ends
+                else:
+                    s.index = full_hist_index[-len(s):]
 
             # Remove duplicate dates
             if not s.index.is_unique:
@@ -428,22 +449,20 @@ def _build_hist_portfolio(
             # daily_series[ticker] = s
             if len(s) < 500:
                 s = s.resample("D").ffill() / 21
-                if verbose:
-                    print(f"  [{ticker}] monthly → resampled to daily, "
-                          f"length {len(s)}")
+                print(f"  [{ticker}] monthly -> resampled to daily, "
+                      f"length {len(s)}, index {s.index.min().date()} -> {s.index.max().date()}")
             else:
-                if verbose:
-                    print(f"  [{ticker}] daily, length {len(s)}, "
-                          f"mean {s.mean():.5f}")
+                print(f"  [{ticker}] daily, length {len(s)}, "
+                      f"index {s.index.min().date()} -> {s.index.max().date()}, mean {s.mean():.5f}")
 
-            # Convert log returns to simple returns before portfolio aggregation
+            # FIX: Convert log returns to simple returns before portfolio aggregation
             if globals().get('useLogs', True):
                 s = np.exp(s) - 1.0
 
             daily_series[ticker] = s
 
-    # ---- Step 2 : per-household intersecting index -----------------
- 
+    # ---- Step 2: per-household intersecting index -----------------
+  
     hist_portfolio = {}
     household_common_index = {}
     for h in households:
@@ -466,10 +485,14 @@ def _build_hist_portfolio(
         common_index_h = clean_h.index
         household_common_index[h] = common_index_h
 
-        if verbose:
+        if verbose or len(common_index_h) <= 5:
+            print(f"  [{h}] held tickers: {held_tickers}")
+            for t in held_tickers:
+                ts = daily_series[t]
+                print(f"      {t}: {len(ts)} obs, index {ts.index.min().date()} -> {ts.index.max().date()}, "
+                      f"weight={asset_weights[h][_asset_class_of(t, assets_completed)][t]:.4f}")
             if len(common_index_h) > 0:
-                print(f"  [{h}] held tickers: {held_tickers}")
-                print(f"  [{h}] Clean validation window: {common_index_h[0].date()} → {common_index_h[-1].date()}")
+                print(f"  [{h}] Clean validation window: {common_index_h[0].date()} -> {common_index_h[-1].date()}")
                 print(f"  [{h}] Total aligned trading days: {len(common_index_h)}")
             else:
                 print(f"  [{h}] WARNING: dropna() left an EMPTY common index for tickers {held_tickers}")
@@ -484,9 +507,7 @@ def _build_hist_portfolio(
 
         hist_portfolio[h] = port
 
-    # Kept for any caller that wants a single index covering every household
-    # that actually has data (e.g. for an "overall" plot axis); individual
-    # households may legitimately have longer/shorter windows than this.
+
     non_empty = [idx for idx in household_common_index.values() if len(idx) > 0]
     if len(non_empty) > 1:
         common_index = functools.reduce(lambda a, b: a.union(b), non_empty).sort_values()
@@ -1039,8 +1060,7 @@ def run_combined_analysis(
     # ------------------------------------------------------------------
     # PREP: build historical portfolio return series (needed for backtest)
     # ------------------------------------------------------------------
-    if verbose:
-        print(f"=== Building historical portfolio returns {horizon_years}-Year Horizon ===")
+    print(f"=== Building historical portfolio returns {horizon_years}-Year Horizon (verbose={verbose}) ===")
     hist_portfolio, _ = _build_hist_portfolio(
         coeffs_dict, assets_completed, asset_weights, households, time_hist,
         trading_days_per_year=trading_days_per_year, verbose=verbose
@@ -2275,7 +2295,7 @@ def house_cum_sigma_banded_plot(assetRes, time, graphFigSize, houseHoldAssetsCol
       else:
         plt.plot(timeLocal, path*100, color=houseHoldAssetsColoursCumPaths[h], alpha=0.2, linewidth=0.8, zorder=zorders[h])
 
-  # Explicitly assign colors to the legend handles
+  # FIX: Explicitly assign colors to the legend handles
   plt.plot([], [], color=houseHoldAssetsColoursCumPaths['80-100'], label=f"{householdDisplayLabels['80-100']}")
   plt.plot([], [], color=houseHoldAssetsColoursCumPaths['40-59'], label=f"{householdDisplayLabels['40-59']}")
   plt.plot([], [], color=houseHoldAssetsColoursCumPaths['0-20'], label=f"{householdDisplayLabels['0-20']}")
@@ -2541,7 +2561,7 @@ def getWeightsTable(inputs, graphHeight, folder):
   tbl.scale(1, 1.5)
   plt.tight_layout()
   plt.gca().yaxis.set_major_formatter(PercentFormatter(1))
-  # Save the figure to a specific file within the folder
+  # Fix: Save the figure to a specific file within the folder
   plt.title("Household Asset Weights")
   plt.savefig(os.path.join(folder, 'assetHouseWeights.png'), dpi=300)
   plt.show()
@@ -2678,7 +2698,7 @@ def getWeightsTable(inputs, graphHeight, folder):
   tbl.scale(1, 1.5)
   plt.tight_layout()
   plt.gca().yaxis.set_major_formatter(PercentFormatter(1))
-  # Save the figure to a specific file within the folder
+  # Fix: Save the figure to a specific file within the folder
   plt.title("Household Asset Class Weights")
   plt.savefig(os.path.join(folder, 'assetClassHouseWeights.png'), dpi=300)
   plt.show()
