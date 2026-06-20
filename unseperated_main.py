@@ -2,6 +2,7 @@
 from pathlib import Path
 import psutil
 import os
+import functools
 
 if os.path.exists("/content/drive/MyDrive"):
     project_dir = Path("/content/drive/MyDrive/Young_Economist")
@@ -435,65 +436,64 @@ def _build_hist_portfolio(
                     print(f"  [{ticker}] daily, length {len(s)}, "
                           f"mean {s.mean():.5f}")
 
-            # FIX: Convert log returns to simple returns before portfolio aggregation
+            # Convert log returns to simple returns before portfolio aggregation
             if globals().get('useLogs', True):
                 s = np.exp(s) - 1.0
 
             daily_series[ticker] = s
-    # ---- Step 2: Create a strict intersecting index
-    # Drop rows where any asset has missing data to get a clean, aligned matrix
-    df_all_daily = pd.DataFrame(daily_series)
-    clean_historical_df = df_all_daily.dropna()
-    common_index = clean_historical_df.index
 
-    if verbose:
-        print(f"  Clean validation window: {common_index[0].date()} → {common_index[-1].date()}")
-        print(f"  Total aligned trading days: {len(common_index)}")
-
-    # ---- Step 3: Weighted portfolio 
+    # ---- Step 2 : per-household intersecting index -----------------
+ 
     hist_portfolio = {}
+    household_common_index = {}
     for h in households:
-        port = pd.Series(0.0, index=common_index)
+        held_tickers = [
+            ticker
+            for asset_class in assets_completed
+            for ticker in assets_completed[asset_class]
+            if asset_weights[h][asset_class][ticker] != 0.0 and ticker in daily_series
+        ]
+
+        if not held_tickers:
+            if verbose:
+                print(f"  [{h}] WARNING: no tickers with nonzero weight found in daily_series")
+            hist_portfolio[h] = pd.Series(dtype=float)
+            household_common_index[h] = pd.DatetimeIndex([])
+            continue
+
+        df_h = pd.DataFrame({t: daily_series[t] for t in held_tickers})
+        clean_h = df_h.dropna()
+        common_index_h = clean_h.index
+        household_common_index[h] = common_index_h
+
+        if verbose:
+            if len(common_index_h) > 0:
+                print(f"  [{h}] held tickers: {held_tickers}")
+                print(f"  [{h}] Clean validation window: {common_index_h[0].date()} → {common_index_h[-1].date()}")
+                print(f"  [{h}] Total aligned trading days: {len(common_index_h)}")
+            else:
+                print(f"  [{h}] WARNING: dropna() left an EMPTY common index for tickers {held_tickers}")
+
+        port = pd.Series(0.0, index=common_index_h)
         for asset_class in assets_completed:
             for ticker in assets_completed[asset_class]:
                 w = asset_weights[h][asset_class][ticker]
                 if w == 0.0:
                     continue
-                
-                port += w * clean_historical_df[ticker]
-                
+                port += w * clean_h[ticker]
+
         hist_portfolio[h] = port
-    # ---- Step 2: common window (only assets with ≥10 years history)
-    # cutoff = pd.Timestamp("2010-01-01")
-    # long_series = {t: s for t, s in daily_series.items() if s.index[0] <= cutoff}
-    # if not long_series:
-    #     long_series = daily_series  # fallback: use all
 
-    # common_start = max(s.index[0] for s in long_series.values())
-    # common_end   = min(s.index[-1] for s in long_series.values())
-    # ref_ticker   = max(long_series, key=lambda t: len(long_series[t]))
-    # common_index = long_series[ref_ticker].loc[common_start:common_end].index
-
-    # if verbose:
-    #     days = (common_end - common_start).days
-    #     print(f"  Common window: {common_start.date()} → {common_end.date()} "
-    #           f"({days} calendar days, ~{days/365:.1f} years)")
-
-    # # ---- Step 3: weighted portfolio
-    # hist_portfolio = {}
-    # for h in households:
-    #     port = pd.Series(0.0, index=common_index)
-    #     for asset_class in assets_completed:
-    #         for ticker in assets_completed[asset_class]:
-    #             w = asset_weights[h][asset_class][ticker]
-    #             if w == 0.0:
-    #                 continue
-    #             s = daily_series[ticker].reindex(common_index, fill_value=0.0)
-    #             port += w * s
-    #     hist_portfolio[h] = port
-    #     if verbose:
-    #         ann = port.mean() * trading_days_per_year
-    #         print(f"  [{h}] annualised hist portfolio return: {ann:.2%}")
+    # Kept for any caller that wants a single index covering every household
+    # that actually has data (e.g. for an "overall" plot axis); individual
+    # households may legitimately have longer/shorter windows than this.
+    non_empty = [idx for idx in household_common_index.values() if len(idx) > 0]
+    if len(non_empty) > 1:
+        common_index = functools.reduce(lambda a, b: a.union(b), non_empty).sort_values()
+    elif len(non_empty) == 1:
+        common_index = non_empty[0]
+    else:
+        common_index = pd.DatetimeIndex([])
 
     return hist_portfolio, common_index
 
@@ -1244,9 +1244,17 @@ def back_Test_pass_fail_results(households, hist_horizon, sim_horizon, backtest_
             "Pass?":         status,
         })
 
+    # NOTE: previously this did .sort_values("Household"), which alphabetically
+    # reorders to ["0-20", "40-59", "80-100"] -- the REVERSE of the income order
+    # used everywhere else (households list, colour maps, chart legends). That
+    # mismatch is what reads as households being "flipped" between a table and
+    # its companion chart. Preserve the caller-supplied household order instead.
+    household_order = {h: i for i, h in enumerate(households)}
     backtest_df = (
         pd.DataFrame(backtest_rows)
-        .sort_values("Household")
+        .assign(_order=lambda d: d["Household"].map(household_order))
+        .sort_values("_order")
+        .drop(columns="_order")
         .reset_index(drop=True)
     )
     return {
@@ -1568,8 +1576,17 @@ def getHouseholdVolTable(aggRes, households):
     meanPath[h] = np.nanmean(sigma_list[h], axis=0)
     pathStd[h] = np.nanstd(sigma_list[h], axis=0) #np.nanstd(sigma_list[h])
   houseVolTable = pd.DataFrame(houseVolatilityRows)
-  #sort
-  houseVolTable = houseVolTable.sort_values(by=["Household"]).reset_index(drop=True)
+  # Preserve caller-supplied household order (income order) rather than
+  # alphabetically reordering -- alphabetical sort flips display order
+  # relative to every chart legend / colour map in the pipeline.
+  household_order = {h: i for i, h in enumerate(households)}
+  houseVolTable = (
+      houseVolTable
+      .assign(_order=houseVolTable["Household"].map(household_order))
+      .sort_values("_order")
+      .drop(columns="_order")
+      .reset_index(drop=True)
+  )
   return { # work in progress
      "summary": houseVolTable,
      "raw": {
@@ -2258,7 +2275,7 @@ def house_cum_sigma_banded_plot(assetRes, time, graphFigSize, houseHoldAssetsCol
       else:
         plt.plot(timeLocal, path*100, color=houseHoldAssetsColoursCumPaths[h], alpha=0.2, linewidth=0.8, zorder=zorders[h])
 
-  # FIX: Explicitly assign colors to the legend handles
+  # Explicitly assign colors to the legend handles
   plt.plot([], [], color=houseHoldAssetsColoursCumPaths['80-100'], label=f"{householdDisplayLabels['80-100']}")
   plt.plot([], [], color=houseHoldAssetsColoursCumPaths['40-59'], label=f"{householdDisplayLabels['40-59']}")
   plt.plot([], [], color=houseHoldAssetsColoursCumPaths['0-20'], label=f"{householdDisplayLabels['0-20']}")
@@ -2524,7 +2541,7 @@ def getWeightsTable(inputs, graphHeight, folder):
   tbl.scale(1, 1.5)
   plt.tight_layout()
   plt.gca().yaxis.set_major_formatter(PercentFormatter(1))
-  # Fix: Save the figure to a specific file within the folder
+  # Save the figure to a specific file within the folder
   plt.title("Household Asset Weights")
   plt.savefig(os.path.join(folder, 'assetHouseWeights.png'), dpi=300)
   plt.show()
@@ -2661,7 +2678,7 @@ def getWeightsTable(inputs, graphHeight, folder):
   tbl.scale(1, 1.5)
   plt.tight_layout()
   plt.gca().yaxis.set_major_formatter(PercentFormatter(1))
-  # Fix: Save the figure to a specific file within the folder
+  # Save the figure to a specific file within the folder
   plt.title("Household Asset Class Weights")
   plt.savefig(os.path.join(folder, 'assetClassHouseWeights.png'), dpi=300)
   plt.show()
@@ -4839,22 +4856,30 @@ def portfolioAggregation(assetWeights, fullSavedAssetRes, households, assetsComp
     # for var_path in portSampleSigmaSquare[h]:
     #         portSampleSigma[h].append(np.sqrt(var_path))
     #
-    
-    vol_window = 21  # 21 trading days (~1 month) rolling window
-    
-    for h in households:
-        for returnSeries in portSamplePaths[h]:
-            # Compute rolling standard deviation path, handling the initial window gap smoothly
-            rolling_vol = pd.Series(returnSeries).rolling(window=vol_window, min_periods=1).std().to_numpy(copy=True)
-            rolling_vol[:vol_window] = rolling_vol[vol_window]
-            # Backfill the first 20 days of NaN values with the first valid volatility
-            # valid_idx = pd.Series(rolling_vol).first_valid_index()
-            # if valid_idx is not None:
-            #     rolling_vol[:valid_idx] = rolling_vol[valid_idx]
-            # else:
-            #     rolling_vol = np.zeros_like(rolling_vol)
-            portSampleSigma[h].append(rolling_vol)
-        portSigma[h] = np.nanmean(portSampleSigma[h], axis=0)
+
+  # NOTE: this used to be nested INSIDE the "for h in households:" loop above,
+  # with its own "for h in households:" reusing the same loop variable "h".
+  # That meant portSigma was recomputed redundantly on every outer pass (9
+  # total passes for 3 households instead of 3), appending duplicate entries
+  # into portSampleSigma[h] each time. It did not swap household identities
+  # (each h's portSigma only ever read portSamplePaths[h]), but it was wasteful
+  # and fragile. Moved out to its own loop, run once, after every household's
+  # portSamplePaths is fully built.
+  vol_window = 21  # 21 trading days (~1 month) rolling window
+
+  for h in households:
+    for returnSeries in portSamplePaths[h]:
+        # Compute rolling standard deviation path, handling the initial window gap smoothly
+        rolling_vol = pd.Series(returnSeries).rolling(window=vol_window, min_periods=1).std().to_numpy(copy=True)
+        rolling_vol[:vol_window] = rolling_vol[vol_window]
+        # Backfill the first 20 days of NaN values with the first valid volatility
+        # valid_idx = pd.Series(rolling_vol).first_valid_index()
+        # if valid_idx is not None:
+        #     rolling_vol[:valid_idx] = rolling_vol[valid_idx]
+        # else:
+        #     rolling_vol = np.zeros_like(rolling_vol)
+        portSampleSigma[h].append(rolling_vol)
+    portSigma[h] = np.nanmean(portSampleSigma[h], axis=0)
   summaryRows = []
 
 
