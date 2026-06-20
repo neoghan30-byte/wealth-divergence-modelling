@@ -194,6 +194,63 @@ asset_weights_flat = {
     for ticker, w in tickers.items()
 }
 
+def debug_inputs(bundle_path, household="80-100"):
+    with open(bundle_path, "rb") as f:
+        bundle = pickle.load(f)
+ 
+    assetResults = bundle["assetResults"]
+    asset_weights_nested = bundle["asset_weights"]
+    asset_order = bundle["allTickersOrdered"]
+    corr_matrix = bundle["fullCorr"]
+ 
+    # Per-ticker vols, as cross_check builds them
+    asset_vols = {}
+    for assetClass in assetResults["sigmaAssetPath"]:
+        for ticker in assetResults["sigmaAssetPath"][assetClass]:
+            sigma_path = assetResults["sigmaAssetPath"][assetClass][ticker]
+            asset_vols[ticker] = float(np.nanmean(sigma_path))
+ 
+    flat_weights = {
+        ticker: w
+        for assetClass, tickers in asset_weights_nested[household].items()
+        for ticker, w in tickers.items()
+    }
+ 
+    print(f"len(asset_order) = {len(asset_order)}")
+    print(f"corr_matrix.shape = {corr_matrix.shape}")
+    print(f"len(asset_vols) = {len(asset_vols)}")
+    print(f"len(flat_weights) = {len(flat_weights)}")
+    print()
+ 
+    print("Tickers in asset_order but MISSING from asset_vols (would silently use vol=0):")
+    missing_vol = [t for t in asset_order if t not in asset_vols]
+    print(f"  {missing_vol}")
+    print()
+ 
+    print("Tickers in asset_order but MISSING from flat_weights (would silently use weight=0):")
+    missing_w = [t for t in asset_order if t not in flat_weights]
+    print(f"  {missing_w}")
+    print()
+ 
+    print("Tickers in flat_weights but MISSING from asset_order (silently dropped from formula entirely):")
+    missing_order = [t for t in flat_weights if t not in asset_order]
+    print(f"  {missing_order}")
+    print()
+ 
+    print("Per-ticker check (first 10 by asset_order):")
+    for t in asset_order[:10]:
+        print(f"  {t!r:30s} weight={flat_weights.get(t, 'MISSING'):>12} "
+              f"vol={asset_vols.get(t, 'MISSING')}")
+ 
+    print()
+    print("Sample of asset_vols values (sanity check magnitude -- should look like")
+    print("annualised vols e.g. 0.1-1.5, NOT tiny daily-scale numbers like 0.01-0.02):")
+    for t, v in list(asset_vols.items())[:10]:
+        print(f"  {t!r:30s} {v}")
+ 
+
+import sys
+debug_inputs(sys.argv[1] if len(sys.argv) > 1 else "Aggregated_State_baseline_sensitivityDebug27_baseline.pkl")
 def cross_check(aggRes, asset_weights, asset_vols, corr_matrix, asset_order, household, vol_window=252):
     """
     aggRes         : portfolioAggregation() output dict
@@ -231,199 +288,191 @@ cross_check(aggRes = aggRes,
             household = '80-100'
             )
 
-# # Restore original chunk loader
-# unseperated_main._sorted_chunk_files = original_sorted_chunk_files
+# Restore original chunk loader
+unseperated_main._sorted_chunk_files = original_sorted_chunk_files
 
-# # =====================================================================
-# # 4. INJECT BASELINE INTO SENSITIVITY RESULTS
-# # =====================================================================
-# print("\n=== 3. INJECTING MATCHING BASELINE INTO SENSITIVITY DATA ===")
+# =====================================================================
+# 4. INJECT BASELINE INTO SENSITIVITY RESULTS
+# =====================================================================
+print("\n=== 3. INJECTING MATCHING BASELINE INTO SENSITIVITY DATA ===")
 
-# new_baseline_comp = unseperated_main.get_comparable_results(
-#     metric_results=metric_results_5k,
-#     name="baseline",
-#     inputParameters=old_inputParameters,
-#     metric_config=cfg["metric_config"],
-#     coeffsDict=old_coeffsDict,
-#     sensitivity_results={}
-# )
+new_baseline_comp = unseperated_main.get_comparable_results(
+    metric_results=metric_results_5k,
+    name="baseline",
+    inputParameters=old_inputParameters,
+    metric_config=cfg["metric_config"],
+    coeffsDict=old_coeffsDict,
+    sensitivity_results={}
+)
 
-# comp_dict["baseline"] = new_baseline_comp["baseline"]
-# import unseperated_main as m
-# # =====================================================================
-# comparable_results = m.runSensitivityTests(
-#         inputParameters=None,
-#         scenarios=None,
-#         metric_config=None,
-#         V_num=f"sensitivityDebug{currentRun}",
-#         testOneChunk=False,
-#         selection=None,
-#         sensitivityResults=new_baseline_comp,
-#         nPaths=5000
-#     )
-# if isinstance(comparable_results, dict) and "comparable_results" in comparable_results:
-#     comp_dict = comparable_results["comparable_results"]
-# else:
-#     comp_dict = comparable_results
-# print("Keys in comp_dict:", list(comp_dict.keys()))
-# if "baseline" in comp_dict:
-#     print("Baseline keys:", list(comp_dict["baseline"].keys()))
-# # comp_dict = comparable_results
-# # =====================================================================
-# # 5. CALCULATE DYNAMIC GAPS & GENERATE TABLES
-# # =====================================================================
-# print("\n=== 4. CALCULATING DYNAMIC GAPS & ELASTICITIES ===")
+comp_dict["baseline"] = new_baseline_comp["baseline"]
+import unseperated_main as m
+# =====================================================================
+comparable_results = m.runSensitivityTests(
+        inputParameters=None,
+        scenarios=None,
+        metric_config=None,
+        V_num=f"sensitivityDebug{currentRun}",
+        testOneChunk=False,
+        selection=None,
+        sensitivityResults=new_baseline_comp,
+        nPaths=5000
+    )
+if isinstance(comparable_results, dict) and "comparable_results" in comparable_results:
+    comp_dict = comparable_results["comparable_results"]
+else:
+    comp_dict = comparable_results
+print("Keys in comp_dict:", list(comp_dict.keys()))
+if "baseline" in comp_dict:
+    print("Baseline keys:", list(comp_dict["baseline"].keys()))
+# comp_dict = comparable_results
+# =====================================================================
+# 5. CALCULATE DYNAMIC GAPS & GENERATE TABLES
+# =====================================================================
+print("\n=== 4. CALCULATING DYNAMIC GAPS & ELASTICITIES ===")
 
-# def flatten_results_safe(comparable_results):
-#     rows = []
-#     for scenario_name, payload in comparable_results.items():
-#         inputs = payload.get("inputs", {})
-#         params = inputs.get("sensitivtyParameters") or {} 
-#         param_type = params.get("type", "baseline")
-#         mu_scalar = params.get("muScalar", 1.0)
-#         vol_scalar = params.get("volScalar", 1.0)
-#         global_scalar = params.get("Global Scalar", np.nan)
-#         df_t = params.get("df_t", np.nan)
-#         std_results = payload.get("standardised_results", {})
-        
-#         for category, level1_data in std_results.items():
-#             if not isinstance(level1_data, dict): continue
-#             for level1_key, level2_data in level1_data.items():
-#                 if not isinstance(level2_data, dict): continue
-#                 for level2_key, metric_data in level2_data.items():
-#                     if isinstance(metric_data, dict):
-#                         for metric_name, value in metric_data.items():
-#                             if metric_name == "raw": continue
-#                             rows.append({"Scenario": scenario_name, "Type": param_type, "muScalar": mu_scalar, "volScalar": vol_scalar, "Category": category, "Level_1": level1_key, "Level_2": level2_key, "Metric": metric_name, "Value": value, "GlobalScalar": global_scalar, "df_t": df_t})
-#                     else:
-#                         if level2_key == "raw": continue
-#                         rows.append({"Scenario": scenario_name, "Type": param_type, "muScalar": mu_scalar, "volScalar": vol_scalar, "Category": category, "Level_1": level1_key, "Level_2": None, "Metric": level2_key, "Value": metric_data, "GlobalScalar": global_scalar, "df_t": df_t})
-#     df = pd.DataFrame(rows)
-#     if 'Value' in df.columns: df['Value'] = pd.to_numeric(df['Value'], errors='coerce')
-#     return df
+def flatten_results_safe(comparable_results):
+    rows = []
+    for scenario_name, payload in comparable_results.items():
+        inputs = payload.get("inputs", {})
+        params = inputs.get("sensitivtyParameters") or {} 
+        param_type = params.get("type", "baseline")
+        mu_scalar = params.get("muScalar", 1.0)
+        vol_scalar = params.get("volScalar", 1.0)
+        global_scalar = params.get("Global Scalar", np.nan)
+        df_t = params.get("df_t", np.nan)
+        std_results = payload.get("standardised_results", {})
+        bus_eps_scalar = params.get("busEpsScalar", np.nan)
+        alpha_bus = params.get("alphaBus", np.nan)
+        std_results = payload.get("standardised_results", {})
+        for category, level1_data in std_results.items():
+            if not isinstance(level1_data, dict): continue
+            for level1_key, level2_data in level1_data.items():
+                if not isinstance(level2_data, dict): continue
+                for level2_key, metric_data in level2_data.items():
+                    if isinstance(metric_data, dict):
+                        for metric_name, value in metric_data.items():
+                            if metric_name == "raw": continue
+                            rows.append({"Scenario": scenario_name, "Type": param_type, "muScalar": mu_scalar, "volScalar": vol_scalar, "Category": category, 
+                                         "Level_1": level1_key, "Level_2": level2_key, "Metric": metric_name, "Value": value, "GlobalScalar": global_scalar, 
+                                         "df_t": df_t, "busEpsScalar": bus_eps_scalar, "alphaBus": alpha_bus})
+                    else:
+                        if level2_key == "raw": continue
+                        rows.append({"Scenario": scenario_name, "Type": param_type, "muScalar": mu_scalar, "volScalar": vol_scalar, 
+                                     "Category": category, "Level_1": level1_key, "Level_2": None, "Metric": level2_key, "Value": metric_data, 
+                                     "GlobalScalar": global_scalar, "df_t": df_t, "busEpsScalar": bus_eps_scalar, "alphaBus": alpha_bus})
+    df = pd.DataFrame(rows)
+    if 'Value' in df.columns: df['Value'] = pd.to_numeric(df['Value'], errors='coerce')
+    return df
 
-# df = flatten_results_safe(comp_dict)
-# def get_gap(df, scenario):
-#     return df.loc[
-#         (df["Scenario"] == scenario) &
-#         (df["Category"] == "gap_results") &
-#         (df["Level_1"] == "80-100 vs 0-20") &
-#         (df["Metric"] == "mean"),
-#         "Value"
-#     ].iloc[0]
-# print(get_gap(df, "baseline"))
-# import pprint
+df = flatten_results_safe(comp_dict)
+def get_gap(df, scenario):
+    return df.loc[
+        (df["Scenario"] == scenario) &
+        (df["Category"] == "gap_results") &
+        (df["Level_1"] == "80-100 vs 0-20") &
+        (df["Metric"] == "mean"),
+        "Value"
+    ].iloc[0]
+print(get_gap(df, "baseline"))
+import pprint
 
-# pprint.pp(
-#     comp_dict["baseline"]["standardised_results"]["gap_results"]
-# )
-# def get_terminal(df, scenario, bucket):
-#     return df.loc[
-#         (df["Scenario"] == scenario) &
-#         (df["Category"] == "mean_household_results") &
-#         (df["Level_1"] == bucket) &
-#         (df["Metric"] == "terminal"),
-#         "Value"
-#     ].iloc[0]
-# base_gap  = get_gap(df, "baseline")
+pprint.pp(
+    comp_dict["baseline"]["standardised_results"]["gap_results"]
+)
+def get_terminal(df, scenario, bucket):
+    return df.loc[
+        (df["Scenario"] == scenario) &
+        (df["Category"] == "mean_household_results") &
+        (df["Level_1"] == bucket) &
+        (df["Metric"] == "terminal"),
+        "Value"
+    ].iloc[0]
+base_gap  = get_gap(df, "baseline")
 
-# base_rich = get_terminal(df, "baseline", "80-100")
-# base_med  = get_terminal(df, "baseline", "40-59")
-# base_poor = get_terminal(df, "baseline", "0-20")
-# # Extract 5k Baseline Terminal Wealths
-# # base_rich = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "80-100") & (df["Metric"] == "terminal") & (df["Scenario"] == "baseline"), "Value"].values[0]
-# # base_med = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "40-59") & (df["Metric"] == "terminal") & (df["Scenario"] == "baseline"), "Value"].values[0]
-# # base_poor = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "0-20") & (df["Metric"] == "terminal") & (df["Scenario"] == "baseline"), "Value"].values[0]
+base_rich = get_terminal(df, "baseline", "80-100")
+base_med  = get_terminal(df, "baseline", "40-59")
+base_poor = get_terminal(df, "baseline", "0-20")
+# Extract 5k Baseline Terminal Wealths
+# base_rich = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "80-100") & (df["Metric"] == "terminal") & (df["Scenario"] == "baseline"), "Value"].values[0]
+# base_med = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "40-59") & (df["Metric"] == "terminal") & (df["Scenario"] == "baseline"), "Value"].values[0]
+# base_poor = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "0-20") & (df["Metric"] == "terminal") & (df["Scenario"] == "baseline"), "Value"].values[0]
 
-# # # DYNAMIC GAP: Rich TW - Poor TW
-# # base_gap = base_rich - base_poor
-# print("BASE GAP:", get_gap(df, "baseline"))
+# # DYNAMIC GAP: Rich TW - Poor TW
+# base_gap = base_rich - base_poor
+print("BASE GAP:", get_gap(df, "baseline"))
 
-# for sc in [
-#     "globalLower20",
-#     "globalHigher20",
-#     "df3",
-#     "df1000"
-# ]:
-#     print(sc, get_gap(df, sc))
-# def build_clean_table(scenario_type, param_col_name, param_field):
-#     scenarios = df.loc[df["Type"] == scenario_type, "Scenario"].unique()
-#     baseline_param_vals = df.loc[(df["Scenario"] == "baseline") & df[param_field].notnull(), param_field].values
-#     baseline_param = baseline_param_vals[0] if len(baseline_param_vals) > 0 else 1.0
-#     rows = []
-#     for sc in scenarios:
-#         if sc == "baseline": continue
-#         try:
-#             r = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "80-100") & (df["Metric"] == "terminal") & (df["Scenario"] == sc), "Value"].values[0]
-#             m = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "40-59") & (df["Metric"] == "terminal") & (df["Scenario"] == sc), "Value"].values[0]
-#             p = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "0-20") & (df["Metric"] == "terminal") & (df["Scenario"] == sc), "Value"].values[0]
+for sc in [
+    "globalLower20",
+    "globalHigher20",
+    "df3",
+    "df1000"
+]:
+    print(sc, get_gap(df, sc))
+def build_clean_table(scenario_type, param_col_name, param_field):
+    scenarios = df.loc[df["Type"] == scenario_type, "Scenario"].unique()
+    baseline_param_vals = df.loc[(df["Scenario"] == "baseline") & df[param_field].notnull(), param_field].values
+    baseline_param = baseline_param_vals[0] if len(baseline_param_vals) > 0 else 1.0
+    rows = []
+    for sc in scenarios:
+        if sc == "baseline": continue
+        if not df.loc[(df["Scenario"] == sc) & df[param_field].notnull()].shape[0]:
+            continue
+        try:
+            r = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "80-100") & (df["Metric"] == "terminal") & (df["Scenario"] == sc), "Value"].values[0]
+            m = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "40-59") & (df["Metric"] == "terminal") & (df["Scenario"] == sc), "Value"].values[0]
+            p = df.loc[(df["Category"] == "mean_household_results") & (df["Level_1"] == "0-20") & (df["Metric"] == "terminal") & (df["Scenario"] == sc), "Value"].values[0]
             
-#             # g = r - p
-#             g = get_gap(df, sc)
-#             param_val = df.loc[(df["Scenario"] == sc) & df[param_field].notnull(), param_field].values
-#             param_val = param_val[0] if len(param_val) > 0 else np.nan
+            # g = r - p
+            g = get_gap(df, sc)
+            param_val = df.loc[(df["Scenario"] == sc) & df[param_field].notnull(), param_field].values
+            param_val = param_val[0] if len(param_val) > 0 else np.nan
             
-#             # g_pct = (g - base_gap) / (0.5 * (abs(g) + abs(base_gap)))
-#             # r_pct = (r - base_rich) / (0.5 * (abs(r) + abs(base_rich)))
-#             # m_pct = (m - base_med) / (0.5 * (abs(m) + abs(base_med)))
-#             # p_pct = (p - base_poor) / (0.5 * (abs(p) + abs(base_poor)))
+            # g_pct = (g - base_gap) / (0.5 * (abs(g) + abs(base_gap)))
+            # r_pct = (r - base_rich) / (0.5 * (abs(r) + abs(base_rich)))
+            # m_pct = (m - base_med) / (0.5 * (abs(m) + abs(base_med)))
+            # p_pct = (p - base_poor) / (0.5 * (abs(p) + abs(base_poor)))
 
-#             # g_pct = (g - base_gap) / (0.5 * (abs(g) + abs(base_gap)))
-#             # Calculate elasticity using the dynamic baseline parameter
-#             # input_delta = (param_val - baseline_param) / baseline_param if baseline_param != 0 else (param_val - baseline_param)
-#             # elas = (g_pct / input_delta) if (input_delta != 0 and not np.isnan(input_delta)) else np.nan
+            # g_pct = (g - base_gap) / (0.5 * (abs(g) + abs(base_gap)))
+            # Calculate elasticity using the dynamic baseline parameter
+            # input_delta = (param_val - baseline_param) / baseline_param if baseline_param != 0 else (param_val - baseline_param)
+            # elas = (g_pct / input_delta) if (input_delta != 0 and not np.isnan(input_delta)) else np.nan
 
-#             g_pct = (g - base_gap) / base_gap
-#             r_pct = (r - base_rich) / base_rich
-#             m_pct = (m - base_med) / base_med
-#             p_pct = (p - base_poor) / base_poor
-#             input_delta = (param_val - baseline_param) / baseline_param if baseline_param != 0 else (param_val - baseline_param)
-#             elas = (g_pct / input_delta) if (input_delta != 0 and not np.isnan(input_delta)) else np.nan
+            g_pct = (g - base_gap) / base_gap
+            r_pct = (r - base_rich) / base_rich
+            m_pct = (m - base_med) / base_med
+            p_pct = (p - base_poor) / base_poor
+            input_delta = (param_val - baseline_param) / baseline_param if baseline_param != 0 else (param_val - baseline_param)
+            elas = (g_pct / input_delta) if (input_delta != 0 and not np.isnan(input_delta)) else np.nan
 
-#             rows.append({
-#                 "Scenario": sc,
-#                 param_col_name: param_val,
-#                 "Gap %Δ": g_pct * 100,
-#                 "80-100 TW %Δ": r_pct * 100,
-#                 "40-59 TW %Δ": m_pct * 100,
-#                 "0-20 TW %Δ": p_pct * 100,
-#                 "Gap Elasticity": elas,
+            rows.append({
+                "Scenario": sc,
+                param_col_name: param_val,
+                "Gap %Δ": g_pct * 100,
+                "80-100 TW %Δ": r_pct * 100,
+                "40-59 TW %Δ": m_pct * 100,
+                "0-20 TW %Δ": p_pct * 100,
+                "Gap Elasticity": elas,
 
-#             })
-#         except IndexError:
-#             continue 
+            })
+        except IndexError:
+            continue 
     
-#     res_df = pd.DataFrame(rows)
-#     if param_col_name in res_df.columns:
-#         res_df = res_df.sort_values(param_col_name).reset_index(drop=True)
-#     return res_df
+    res_df = pd.DataFrame(rows)
+    if param_col_name in res_df.columns:
+        res_df = res_df.sort_values(param_col_name).reset_index(drop=True)
+    return res_df
 
-# tables = {
-#     "Return_Sensitivity": build_clean_table("returns", "Return Scalar", "muScalar"),
-#     "Volatility_Sensitivity": build_clean_table("volatility", "Vol Scalar", "volScalar"),
-#     "Correlation_Sensitivity": build_clean_table("correlation", "Global Scalar", "GlobalScalar"),
-#     "Tail_Risk_Sensitivity": build_clean_table("df_t", "Degrees of Freedom", "df_t")
-# }
+tables = {
+    "Return_Sensitivity": build_clean_table("returns", "Return Scalar", "muScalar"),
+    "Volatility_Sensitivity": build_clean_table("volatility", "Vol Scalar", "volScalar"),
+    "Correlation_Sensitivity": build_clean_table("correlation", "Global Scalar", "GlobalScalar"),
+    "Tail_Risk_Sensitivity": build_clean_table("df_t", "Degrees of Freedom", "df_t"),
+    "Business_Wealth_Eps_Sensitivity": build_clean_table("business_wealth", "Business Wealth Eps Scalar", "busEpsScalar"),
+    "Business_Wealth_Alpha_Sensitivity": build_clean_table("business_wealth", "Alpha Bus", "alphaBus"),
+}
 
-# # for title, tbl in tables.items():
-# #     if not tbl.empty:
-# #         print(f"=== {title.replace('_', ' ').upper()} ===")
-        
-# #         print_df = tbl.copy()
-# #         for col in print_df.columns:
-# #             if "%Δ" in col or "Elasticity" in col:
-# #                 print_df[col] = print_df[col].map(lambda x: f"{x:.2f}" if pd.notnull(x) else "")
-# #             elif np.issubdtype(print_df[col].dtype, np.number):
-# #                 # Format scalars like 'Degrees of Freedom' to standard strings
-# #                 print_df[col] = print_df[col].map(lambda x: f"{x:.4g}" if pd.notnull(x) else "")
-                
-# #         print(print_df.to_string(index=False), "\n")
-        
-# #         # Save CSV
-# #         tbl.to_csv(graph_dir / f"{title}.csv", index=False)
-        
-        
-# #         unseperated_main.makeTablePretty(print_df, title.replace('_', ' '), graph_dir)
+
 # for title, tbl in tables.items():
 #     if not tbl.empty:
 #         print(f"=== {title.replace('_', ' ').upper()} ===")
@@ -432,8 +481,8 @@ cross_check(aggRes = aggRes,
 #         for col in print_df.columns:
 #             if "%Δ" in col or "Elasticity" in col:
 #                 print_df[col] = print_df[col].map(lambda x: f"{x:.2f}" if pd.notnull(x) else "")
-#             elif pd.api.types.is_numeric_dtype(print_df[col]):
-#                 # Format scalars like 'Degrees of Freedom' to standard strings using Pandas type checker
+#             elif np.issubdtype(print_df[col].dtype, np.number):
+#                 # Format scalars like 'Degrees of Freedom' to standard strings
 #                 print_df[col] = print_df[col].map(lambda x: f"{x:.4g}" if pd.notnull(x) else "")
                 
 #         print(print_df.to_string(index=False), "\n")
@@ -441,32 +490,51 @@ cross_check(aggRes = aggRes,
 #         # Save CSV
 #         tbl.to_csv(graph_dir / f"{title}.csv", index=False)
         
-#         # Pass the formatted strings to makeTablePretty so it won't multiply by 100
+        
 #         unseperated_main.makeTablePretty(print_df, title.replace('_', ' '), graph_dir)
+for title, tbl in tables.items():
+    if not tbl.empty:
+        print(f"=== {title.replace('_', ' ').upper()} ===")
+        
+        print_df = tbl.copy()
+        for col in print_df.columns:
+            if "%Δ" in col or "Elasticity" in col:
+                print_df[col] = print_df[col].map(lambda x: f"{x:.2f}" if pd.notnull(x) else "")
+            elif pd.api.types.is_numeric_dtype(print_df[col]):
+                # Format scalars like 'Degrees of Freedom' to standard strings using Pandas type checker
+                print_df[col] = print_df[col].map(lambda x: f"{x:.4g}" if pd.notnull(x) else "")
+                
+        print(print_df.to_string(index=False), "\n")
+        
+        # Save CSV
+        tbl.to_csv(graph_dir / f"{title}.csv", index=False)
+        
+        # Pass the formatted strings to makeTablePretty so it won't multiply by 100
+        unseperated_main.makeTablePretty(print_df, title.replace('_', ' '), graph_dir)
 
-# # =====================================================================
-# # 6. RUN ALL NATIVE GRAPHS 
-# # =====================================================================
-# print("\n=== 5. RUNNING ALL GRAPHS ===")
+# =====================================================================
+# 6. RUN ALL NATIVE GRAPHS 
+# =====================================================================
+print("\n=== 5. RUNNING ALL GRAPHS ===")
 
 
 
-# # Run  native graphing function. 
-# print(graph_dir)
-# print(metric_results_5k.keys())
-# try:
-#     unseperated_main.runGraphs(
-#         aggRes=aggRes,
-#         assetResults=assetResults,
-#         time=cfg["time"],
-#         households=cfg["households"],
-#         graph_dir=graph_dir,
-#         metric_results=metric_results_5k,
-#         tablesNeeded=True,
-#     )
-# except Exception:
-#     import traceback
-#     traceback.print_exc()
-#     raise
+# Run  native graphing function. 
+print(graph_dir)
+print(metric_results_5k.keys())
+try:
+    unseperated_main.runGraphs(
+        aggRes=aggRes,
+        assetResults=assetResults,
+        time=cfg["time"],
+        households=cfg["households"],
+        graph_dir=graph_dir,
+        metric_results=metric_results_5k,
+        tablesNeeded=True,
+    )
+except Exception:
+    import traceback
+    traceback.print_exc()
+    raise
 
-# print("\n=== PIPELINE COMPLETE. CHECK /graphs FOLDER ===")
+print("\n=== PIPELINE COMPLETE. CHECK /graphs FOLDER ===")

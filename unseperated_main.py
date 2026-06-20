@@ -2477,13 +2477,14 @@ def getWeightsTable(inputs, graphHeight, folder):
   numeric_cols = ['Household 80-100 Weights', 'Household 40-59 Weights', 'Household 0-20 Weights', 'Difference', 'Differences']
 
 
-  # Apply formatting to the numeric columns using .map for a single series and .apply for multiple series
-  # Or, iterate through columns if using a lambda with conditional formatting
-  for col in numeric_cols:
-      weightDF[col] = weightDF[col].map(
-          lambda x: f"{x:.2f}" if pd.notnull(x) and isinstance(x, (int, float)) else ""
-      )
+  def format_pct(x):
+      if pd.notnull(x) and isinstance(x, (int, float, np.number)):
+          return f"{x * 100:.2f}"
+      return ""
 
+  displayDF = weightDF.copy()
+  for col in numeric_cols:
+      displayDF[col] = displayDF[col].map(format_pct)
 
   print("")
   # print(weightDF)
@@ -2505,15 +2506,14 @@ def getWeightsTable(inputs, graphHeight, folder):
   # print(weightsNumeric)
   weightsDisplay = weightsNumeric.copy()
   tbl = ax.table(cellText=weightsDisplay.values, colLabels=weightsDisplay.columns, loc='center')
-  # The getColumnColours function and the loop calling it are removed as they are redundant
-  # and contain incorrect column references. The coloring logic is consolidated below.
+
 
 
   for i, row in weightDF.iterrows():
     original_weight_data = pd.DataFrame(houseTable)
 
 
-    # Get column indices dynamically from weightsDisplay (which has the formatted column names)
+    # Get column indices dynamically from weightsDisplay
     col_80_100_idx = weightsDisplay.columns.get_loc('Household 80-100 Weights')
     col_40_59_idx = weightsDisplay.columns.get_loc('Household 40-59 Weights')
     col_0_20_idx = weightsDisplay.columns.get_loc('Household 0-20 Weights')
@@ -2570,7 +2570,7 @@ def getWeightsTable(inputs, graphHeight, folder):
   # ======================================================================================
   #                               Ticker Level Weights
   # ======================================================================================
-  houseTable = []
+  classTable = []
   midHouseTable = []
   lowHouseTable = []
   tickersFlat = []
@@ -2592,21 +2592,21 @@ def getWeightsTable(inputs, graphHeight, folder):
                   Difference2.append(inputs["assetWeights"]['80-100'][assetClass][ticker] - inputs["assetWeights"]['40-59'][assetClass][ticker])#, if not np.isnan(optW) else np.nan
 
 
-      houseTable.append({
+      classTable.append({
                               'Asset Class': assetClass,
                               # 'Asset': ticker,
-                              'Household 80-100 Weights': np.nanmean(highWeights),
-                              'Household 40-59 Weights': np.nanmean(midWeights),
-                              'Household 0-20 Weights': np.nanmean(lowWeights),
+                              'Household 80-100 Weights': sum(highWeights),
+                              'Household 40-59 Weights': sum(midWeights),
+                              'Household 0-20 Weights': sum(lowWeights),
                               # 'Optimal Weights': optWeightsFlat[i] if i < len(optWeightsFlat) else np.nan,
-                              'Difference': np.nanmean(Difference1), #if not np.isnan(optW) else np.nan,
-                              'Differences': np.nanmean(Difference2)#, if not np.isnan(optW) else np.nan
+                              'Difference': sum(Difference1), #if not np.isnan(optW) else np.nan,
+                              'Differences': sum(Difference2)#, if not np.isnan(optW) else np.nan
                               })
 
 
 
 
-  weightDF = pd.DataFrame(houseTable)
+  weightDF = pd.DataFrame(classTable)
   # print(weightDF)
 
 
@@ -2638,7 +2638,7 @@ def getWeightsTable(inputs, graphHeight, folder):
 
   tableValues = weightDF.copy()
   tbl = ax.table(cellText=tableValues.values, colLabels=tableValues.columns, loc='center')
-  weightsNumeric = pd.DataFrame(houseTable)
+  weightsNumeric = pd.DataFrame(classTable)
   # print(weightsNumeric)
   weightsDisplay = weightsNumeric.copy()
   tbl = ax.table(cellText=weightsDisplay.values, colLabels=weightsDisplay.columns, loc='center')
@@ -2647,7 +2647,7 @@ def getWeightsTable(inputs, graphHeight, folder):
 
 
   for i, row in weightDF.iterrows():
-    original_weight_data = pd.DataFrame(houseTable)
+    original_weight_data = pd.DataFrame(classTable)
 
 
     # Get column indices dynamically from weightsDisplay (which has the formatted column names)
@@ -2716,7 +2716,7 @@ def householdWeightsBar(
       householdColors: dict,
       graphFigSize,
       aggRes: dict,
-
+      folder: str 
 
       ):
   # households = ["0-20", "40-59", "80-100"]
@@ -2847,12 +2847,15 @@ def householdWeightsBar(
       title='HH Income Group' 
   )
   plt.tight_layout()
+  if folder:
+      plt.savefig(os.path.join(folder, "Portfolio_Allocation_Bar.png"), dpi=300)
   plt.show()
 
 
   print(f"valuesTotal {valuesTotal}")
   for i, h in enumerate(households):
     print(sum(valuesTotal[h]))
+
   # plt.figure(figsize=(12, 8))
   # plt.xticks(x + width, assets, rotation=25, ha='right')
   # plt.bar(x + i*width, valuesTotal, width, label=h, color='#FFFF00')
@@ -3315,7 +3318,7 @@ def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results,
       
   try:
       if asset_weights_raw is not None and assets is not None:
-          householdWeightsBar(asset_weights_raw, assets, households, houseHoldAssetsColours, graphFigSize, aggRes)
+          householdWeightsBar(asset_weights_raw, assets, households, houseHoldAssetsColours, graphFigSize, aggRes, graph_dir)
   except Exception as e:
       print(f"[WARN] householdWeightsBar failed: {e}")
 
