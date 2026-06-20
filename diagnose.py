@@ -109,6 +109,6 @@ def run_diagnose():
 
 
     diagnose(coeffsDict, assetsCompleted, time)
-if __name__ == "diagnose":
+if __name__ == "diagnose.py" or True:
     run_diagnose()
     
