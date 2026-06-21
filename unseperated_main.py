@@ -4363,7 +4363,7 @@ def setup():
 
 
 
-  corrAbleClasses = ["Equities", "Bonds Short", "Bonds Long", 'Business Wealth']
+  corrAbleClasses = ["Equities", "Bonds Short", "Bonds Long", 'Business Wealth']#, 'Property', 'Deposits']
   # return {
   #   "assetWeights": assetWeights,
   #   "metric_config": metric_config,
@@ -6316,6 +6316,7 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
       dailyTickers = []
       corrDaily = np.array([[1.0]])
       allReturns = pd.DataFrame()
+  print(f"[DEBUG] dailyTickers={len(dailyTickers)}, allReturns.empty={allReturns.empty if 'allReturns' in dir() else 'undefined'}")
   monthlyData = {}
   for assetClass in ['Property', 'Deposits']:
       if assetClass in coeffsDict:
@@ -6344,6 +6345,7 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
   #  Only create DataFrame if have data
   if monthlyData:
       dfMonthly = pd.DataFrame(monthlyData).dropna()
+      print(f"[DEBUG] dfMonthly.shape={dfMonthly.shape}, len(dfMonthly)={len(dfMonthly)}")
       if len(dfMonthly) < 2:
           monthlyTickers = []
           corrMonthly = np.array([[1.0]])
