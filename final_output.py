@@ -71,7 +71,8 @@ else:
     BASELINE_V_NUM = SENSITIVITY_V_NUM + "_baseline"
     old_total_paths = old_inputParameters["Chunks"]["totalPaths"]
     old_inputParameters["Chunks"]["totalPaths"] = TARGET_PATHS
-    
+    baseline_bundle_path = data_dir / f"Aggregated_State_baseline_{BASELINE_V_NUM}.pkl"
+
     unseperated_main.runChunks(
         inputParameters=old_inputParameters,
         coeffsDict=old_coeffsDict,
@@ -91,96 +92,113 @@ else:
     )
     old_inputParameters["Chunks"]["totalPaths"] = old_total_paths
 
-print("=== 1. RE-AGGREGATING BASELINE FROM CHUNKS ===")
-state_file = data_dir / f"assetState_{BASELINE_V_NUM}_5k.pkl"
-res_file = data_dir / f"assetStateResults_{BASELINE_V_NUM}_5k.pkl"
-if state_file.exists(): state_file.unlink()
-if res_file.exists(): res_file.unlink()
-
-# Monkey-patch os.listdir to prevent aggregate_to_asset_paths from reading scenario chunks
-original_listdir = os.listdir
-def patched_listdir(path):
-    files = original_listdir(path)
-    # Only return exact matches for the baseline V_num (rejects scenarios with suffixes like LowerReturns)
-    return [f for f in files if re.match(rf"^Chunk_Results_{BASELINE_V_NUM}_\d+_\d+\.pkl$", f) or not f.startswith("Chunk_Results_")]
-
-os.listdir = patched_listdir
-try:
-    assetResults = unseperated_main.aggregate_to_asset_paths(
-        TARGET_PATHS, 
-        BASELINE_V_NUM, 
-        statePath=state_file, 
-        resultPath=res_file
-    )
-finally:
-    os.listdir = original_listdir
-
-aggRes = unseperated_main.portfolioAggregation(
-    old_assetWeights, 
-    assetResults, 
-    cfg["households"], 
-    cfg["assetsCompleted"]
-)
-households = cfg["households"]
-
-print(f"Baseline Terminal Wealth (80-100): {aggRes['portCumR']['80-100'][-1]:.4f}")
-print(f"Baseline Terminal Wealth (0-20):   {aggRes['portCumR']['0-20'][-1]:.4f}")
-
-
-
-# =====================================================================
-# 2.  CHUNK LOADER FOR METRIC ANALYSIS
-# =====================================================================
-original_sorted_chunk_files = unseperated_main._sorted_chunk_files
-
-def patched_sorted_chunk_files(chunk_folder, V_num):
-    files = original_sorted_chunk_files(chunk_folder, V_num)
-    # Ensure strict matching so baseline doesn't pull in scenarios
-    files = [f for f in files if re.match(rf"^Chunk_Results_{V_num}_\d+_\d+\.pkl$", f)]
-    filtered = []
-    for f in files:
-        try:
-            start_idx = int(f.replace(".pkl", "").split("_")[-2])
-            if start_idx < TARGET_PATHS:
-                filtered.append(f)
-        except:
-            pass
-    return filtered
-
-unseperated_main._sorted_chunk_files = patched_sorted_chunk_files
-
-# =====================================================================
-# 3. RUN METRIC ANALYSIS ON BASELINE
-# =====================================================================
-print("\n=== 2. RUNNING METRIC ANALYSIS ON MATCHING BASELINE ===")
-
-metric_results_5k = unseperated_main.get_metric_analysis(
-    chunk_folder=chunk_folder,
-    coeffs_dict=old_coeffsDict,
-    assets_completed=cfg["assetsCompleted"],
-    asset_weights=old_assetWeights,
-    households=cfg["households"],
-    time_hist=cfg["time"],
-    V_num=BASELINE_V_NUM,
-    percentile_bands=old_inputParameters["percentile_bands"],
-    aggRes=aggRes,
-    asset_level_res=assetResults
-)
 
 baseline_bundle_path = data_dir / f"Aggregated_State_baseline_{BASELINE_V_NUM}.pkl"
-with open(baseline_bundle_path, "wb") as f:
-    pickle.dump({
-        "aggRes": aggRes,
-        "assetResults": assetResults,
-        "metric_results": metric_results_5k,
-        "households": cfg["households"],
-        "asset_weights": old_assetWeights,      # household -> assetClass -> ticker -> weight
-        "fullCorr": fullCorr,                   # ticker-level correlation matrix (post-modifier)
-        "allTickersOrdered": allTickersOrdered, # row/col order matching fullCorr
-        "coeffs_dict": old_coeffsDict,
-    }, f)
-print(f"Saved baseline bundle to {baseline_bundle_path} "
-      f"({baseline_bundle_path.stat().st_size / 1e6:.1f} MB)")
+if baseline_bundle_path.exists():
+    print(f"=== LOADING CACHED BASELINE FROM {baseline_bundle_path.name} ===")
+    with open(baseline_bundle_path, "rb") as f:
+        bundle = pickle.load(f)
+    
+    aggRes = bundle["aggRes"]
+    assetResults = bundle["assetResults"]
+    metric_results_5k = bundle["metric_results"]
+    fullCorr = bundle["fullCorr"]
+    allTickersOrdered = bundle["allTickersOrdered"]
+    
+    print(f"Baseline Terminal Wealth (80-100): {aggRes['portCumR']['80-100'][-1]:.4f}")
+    print(f"Baseline Terminal Wealth (0-20):   {aggRes['portCumR']['0-20'][-1]:.4f}")
+
+else:
+    print("=== 1. RE-AGGREGATING BASELINE FROM CHUNKS ===")
+    state_file = data_dir / f"assetState_{BASELINE_V_NUM}_5k.pkl"
+    res_file = data_dir / f"assetStateResults_{BASELINE_V_NUM}_5k.pkl"
+    # if state_file.exists(): state_file.unlink()
+    # if res_file.exists(): res_file.unlink()
+
+    # Monkey-patch os.listdir to prevent aggregate_to_asset_paths from reading scenario chunks
+    original_listdir = os.listdir
+    def patched_listdir(path):
+        files = original_listdir(path)
+        # Only return exact matches for the baseline V_num (rejects scenarios with suffixes like LowerReturns)
+        return [f for f in files if re.match(rf"^Chunk_Results_{BASELINE_V_NUM}_\d+_\d+\.pkl$", f) or not f.startswith("Chunk_Results_")]
+
+    os.listdir = patched_listdir
+    try:
+        assetResults = unseperated_main.aggregate_to_asset_paths(
+            TARGET_PATHS, 
+            BASELINE_V_NUM, 
+            statePath=state_file, 
+            resultPath=res_file
+        )
+    finally:
+        os.listdir = original_listdir
+
+    aggRes = unseperated_main.portfolioAggregation(
+        old_assetWeights, 
+        assetResults, 
+        cfg["households"], 
+        cfg["assetsCompleted"]
+    )
+    households = cfg["households"]
+
+    print(f"Baseline Terminal Wealth (80-100): {aggRes['portCumR']['80-100'][-1]:.4f}")
+    print(f"Baseline Terminal Wealth (0-20):   {aggRes['portCumR']['0-20'][-1]:.4f}")
+
+
+
+    # =====================================================================
+    # 2.  CHUNK LOADER FOR METRIC ANALYSIS
+    # =====================================================================
+    original_sorted_chunk_files = unseperated_main._sorted_chunk_files
+
+    def patched_sorted_chunk_files(chunk_folder, V_num):
+        files = original_sorted_chunk_files(chunk_folder, V_num)
+        # Ensure strict matching so baseline doesn't pull in scenarios
+        files = [f for f in files if re.match(rf"^Chunk_Results_{V_num}_\d+_\d+\.pkl$", f)]
+        filtered = []
+        for f in files:
+            try:
+                start_idx = int(f.replace(".pkl", "").split("_")[-2])
+                if start_idx < TARGET_PATHS:
+                    filtered.append(f)
+            except:
+                pass
+        return filtered
+
+    unseperated_main._sorted_chunk_files = patched_sorted_chunk_files
+
+    # =====================================================================
+    # 3. RUN METRIC ANALYSIS ON BASELINE
+    # =====================================================================
+    print("\n=== 2. RUNNING METRIC ANALYSIS ON MATCHING BASELINE ===")
+
+    metric_results_5k = unseperated_main.get_metric_analysis(
+        chunk_folder=chunk_folder,
+        coeffs_dict=old_coeffsDict,
+        assets_completed=cfg["assetsCompleted"],
+        asset_weights=old_assetWeights,
+        households=cfg["households"],
+        time_hist=cfg["time"],
+        V_num=BASELINE_V_NUM,
+        percentile_bands=old_inputParameters["percentile_bands"],
+        aggRes=aggRes,
+        asset_level_res=assetResults
+    )
+
+    baseline_bundle_path = data_dir / f"Aggregated_State_baseline_{BASELINE_V_NUM}.pkl"
+    with open(baseline_bundle_path, "wb") as f:
+        pickle.dump({
+            "aggRes": aggRes,
+            "assetResults": assetResults,
+            "metric_results": metric_results_5k,
+            "households": cfg["households"],
+            "asset_weights": old_assetWeights,      # household -> assetClass -> ticker -> weight
+            "fullCorr": fullCorr,                   # ticker-level correlation matrix (post-modifier)
+            "allTickersOrdered": allTickersOrdered, # row/col order matching fullCorr
+            "coeffs_dict": old_coeffsDict,
+        }, f)
+    print(f"Saved baseline bundle to {baseline_bundle_path} "
+        f"({baseline_bundle_path.stat().st_size / 1e6:.1f} MB)")
 asset_vols = {}
 for assetClass in assetResults['sigmaAssetPath']:
     for ticker in assetResults['sigmaAssetPath'][assetClass]:
@@ -250,7 +268,7 @@ def debug_inputs(bundle_path, household="80-100"):
  
 
 import sys
-debug_inputs(sys.argv[1] if len(sys.argv) > 1 else "Aggregated_State_baseline_sensitivityDebug27_baseline.pkl")
+debug_inputs(sys.argv[1] if len(sys.argv) > 1 else baseline_bundle_path)#"Aggregated_State_baseline_sensitivityDebug{currentRun}_baseline.pkl")
 def cross_check(aggRes, asset_weights, asset_vols, corr_matrix, asset_order, household, vol_window=252):
     """
     aggRes         : portfolioAggregation() output dict
@@ -287,9 +305,6 @@ cross_check(aggRes = aggRes,
             asset_order = allTickersOrdered,
             household = '80-100'
             )
-
-# Restore original chunk loader
-unseperated_main._sorted_chunk_files = original_sorted_chunk_files
 
 # =====================================================================
 # 4. INJECT BASELINE INTO SENSITIVITY RESULTS
