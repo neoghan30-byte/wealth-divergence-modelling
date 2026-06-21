@@ -6282,6 +6282,19 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
 
 
   # minLen = min(len(v) for v in closeDict.values())
+print(f"[DEBUG] closeDict keys ({len(closeDict)}): {sorted(closeDict.keys())}")
+all_daily_candidates = []
+for assetClass in assets:
+    for ticker in assets[assetClass]:
+        if assetClass in assetsCompleted and ticker in assetsCompleted[assetClass] and assetClass in corrAbleClasses:
+            all_daily_candidates.append((assetClass, ticker))
+print(f"[DEBUG] eligible (assetClass,ticker) pairs ({len(all_daily_candidates)}): {all_daily_candidates}")
+missing = [(ac, t) for ac, t in all_daily_candidates if t not in closeDict]
+print(f"[DEBUG] eligible but missing from closeDict: {missing}")
+for ac, t in missing:
+    has_key = 'histRet' in coeffsDict.get(ac, {}).get(t, {})
+    val = coeffsDict.get(ac, {}).get(t, {}).get('histRet', '<no key>')
+    print(f"[DEBUG]   {ac}/{t}: has histRet key={has_key}, value type={type(val)}")
   minLen = min(len(v) for v in closeDict.values()) if closeDict else 0
   # useIndependentNoise = (minLen < 2) or (len(closeDict) < 2)
   useIndependentNoise = (minLen < 100) or (len(closeDict) < 2)
