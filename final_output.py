@@ -269,35 +269,104 @@ def debug_inputs(bundle_path, household="80-100"):
 
 import sys
 debug_inputs(sys.argv[1] if len(sys.argv) > 1 else baseline_bundle_path)#"Aggregated_State_baseline_sensitivityDebug{currentRun}_baseline.pkl")
+
 def cross_check(aggRes, asset_weights, asset_vols, corr_matrix, asset_order, household, vol_window=252):
     """
-    aggRes         : portfolioAggregation() output dict
+    aggRes         : your portfolioAggregation() output dict
     asset_weights  : dict {ticker: weight} for this household (flat, all asset classes)
-    asset_vols     : dict {ticker: annualised vol}
+    asset_vols     : dict {ticker: DAILY vol} -- from sigmaAssetPath, NOT yet annualised
     corr_matrix    : 2D np.ndarray, correlation matrix aligned to asset_order
     asset_order    : list of tickers, same order as corr_matrix rows/cols
     household      : e.g. "80-100"
     """
+    # ---- Surface mismatches loudly instead of silently zeroing/dropping ----
+    # A previous version of this script silently used .get(t, 0.0), which
+    # masked any ticker present in asset_weights but missing from asset_order
+    # (it was just dropped from the w' Sigma w sum with no warning at all).
+    missing_from_order = [t for t in asset_weights if t not in asset_order]
+    weight_in_missing = sum(asset_weights[t] for t in missing_from_order)
+    total_weight = sum(asset_weights.values())
+    if missing_from_order:
+        print(f"  [{household}] WARNING: {len(missing_from_order)} tickers in "
+              f"asset_weights are NOT in asset_order and will be EXCLUDED from "
+              f"Method 2 entirely: {missing_from_order}")
+        print(f"  [{household}] WARNING: those tickers carry "
+              f"{weight_in_missing:.4f} of {total_weight:.4f} total weight "
+              f"({weight_in_missing/total_weight:.1%}) -- Method 2 below is "
+              f"NOT comparable to Method 1 unless this is ~0%.")
+ 
     # ---- Method 1: direct from simulated portfolio paths ----
     sample_paths = aggRes['portSamplePaths'][household]
     direct_vols = [np.nanstd(p) * np.sqrt(vol_window) for p in sample_paths]  # annualise daily std
     method1_vol = np.nanmean(direct_vols)
-
+ 
     # ---- Method 2: w' Sigma w formula ----
+    # IMPORTANT: asset_vols (from sigmaAssetPath) are DAILY-scale (e.g.
+    # ^GSPC ~ 0.012/day), matching the daily return paths portSamplePaths is
+    # also built from. Method 1 annualises by * sqrt(vol_window); Method 2
+    # must do the same to the per-asset vols BEFORE building Sigma, or the
+    # two methods are off by sqrt(vol_window) (~15.87x for vol_window=252)
+    # for no reason related to your actual aggregation code.
     w = np.array([asset_weights.get(t, 0.0) for t in asset_order])
-    vols = np.array([asset_vols.get(t, 0.0) for t in asset_order])
-    Sigma = np.outer(vols, vols) * corr_matrix  # covariance = vol_i*vol_j*corr_ij
+    vols_daily = np.array([asset_vols.get(t, 0.0) for t in asset_order])
+    vols_annualised = vols_daily * np.sqrt(vol_window)
+    Sigma = np.outer(vols_annualised, vols_annualised) * corr_matrix
     port_var = w @ Sigma @ w
     method2_vol = np.sqrt(port_var) if port_var >= 0 else float('nan')
-
+ 
     print(f"=== {household} ===")
     print(f"  Method 1 (direct from simulated portfolio paths): {method1_vol:.4f}")
-    print(f"  Method 2 (w' Sigma w formula, your weights/vols/corr): {method2_vol:.4f}")
+    print(f"  Method 2 (w' Sigma w formula, your weights/vols/corr, annualised): {method2_vol:.4f}")
     print(f"  Difference: {abs(method1_vol - method2_vol):.4f} "
           f"({abs(method1_vol-method2_vol)/method2_vol:.1%} relative)")
-    print(f"  Sum of weights used: {w.sum():.4f} (should be close to total portfolio weight)")
+    print(f"  Sum of weights used in Method 2 (asset_order subset only): {w.sum():.4f} "
+          f"of {total_weight:.4f} total household weight")
     print()
     return method1_vol, method2_vol
+ 
+ 
+def load_bundle_and_run(bundle_path, households=None):
+    """
+    Loads an "Aggregated_State_baseline_*.pkl" bundle (see
+    save_baseline_bundle_v2.py) and runs cross_check for each household,
+    handling per-ticker vol extraction and weight flattening automatically.
+    """
+    with open(bundle_path, "rb") as f:
+        bundle = pickle.load(f)
+ 
+    aggRes = bundle["aggRes"]
+    assetResults = bundle["assetResults"]
+    asset_weights_nested = bundle["asset_weights"]   # household -> assetClass -> ticker -> w
+    corr_matrix = bundle["fullCorr"]
+    asset_order = bundle["allTickersOrdered"]
+    if households is None:
+        households = bundle["households"]
+ 
+    # Per-ticker vols from sigmaAssetPath (NOT the asset-class-level table)
+    asset_vols = {}
+    for assetClass in assetResults["sigmaAssetPath"]:
+        for ticker in assetResults["sigmaAssetPath"][assetClass]:
+            sigma_path = assetResults["sigmaAssetPath"][assetClass][ticker]
+            asset_vols[ticker] = float(np.nanmean(sigma_path))
+ 
+    results = {}
+    for h in households:
+        # Flatten this household's weights from {assetClass: {ticker: w}} to {ticker: w}
+        flat_weights = {
+            ticker: w
+            for assetClass, tickers in asset_weights_nested[h].items()
+            for ticker, w in tickers.items()
+        }
+        results[h] = cross_check(
+            aggRes=aggRes,
+            asset_weights=flat_weights,
+            asset_vols=asset_vols,
+            corr_matrix=corr_matrix,
+            asset_order=asset_order,
+            household=h,
+        )
+    return results
+
 cross_check(aggRes = aggRes, 
             asset_weights = asset_weights_flat, 
             asset_vols = asset_vols,
