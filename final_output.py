@@ -90,6 +90,7 @@ else:
         V_num=BASELINE_V_NUM,
         testOneChunk=False
     )
+
     old_inputParameters["Chunks"]["totalPaths"] = old_total_paths
 
 
@@ -199,6 +200,8 @@ else:
         }, f)
     print(f"Saved baseline bundle to {baseline_bundle_path} "
         f"({baseline_bundle_path.stat().st_size / 1e6:.1f} MB)")
+
+
 asset_vols = {}
 for assetClass in assetResults['sigmaAssetPath']:
     for ticker in assetResults['sigmaAssetPath'][assetClass]:
@@ -367,13 +370,15 @@ def load_bundle_and_run(bundle_path, households=None):
         )
     return results
 
-cross_check(aggRes = aggRes, 
-            asset_weights = asset_weights_flat, 
-            asset_vols = asset_vols,
-            corr_matrix = fullCorr,
-            asset_order = allTickersOrdered,
-            household = '80-100'
-            )
+for household in households:
+
+    cross_check(aggRes = aggRes, 
+                asset_weights = asset_weights_flat, 
+                asset_vols = asset_vols,
+                corr_matrix = fullCorr,
+                asset_order = allTickersOrdered,
+                household = household
+                )
 
 # =====================================================================
 # 4. INJECT BASELINE INTO SENSITIVITY RESULTS
