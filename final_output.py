@@ -369,7 +369,7 @@ def load_bundle_and_run(bundle_path, households=None):
             household=h,
         )
     return results
-
+households = ['80-100', '40-59', '0-20']
 for household in households:
 
     cross_check(aggRes = aggRes, 
