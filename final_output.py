@@ -432,8 +432,10 @@ def flatten_results_safe(comparable_results):
         df_t = params.get("df_t", np.nan)
         std_results = payload.get("standardised_results", {})
         bus_eps_scalar = params.get("busEpsScalar", np.nan)
-        alpha_bus = params.get("alphaBus", np.nan)
+        alpha_bus = params.get("alphaBusRaw", np.nan)
         std_results = payload.get("standardised_results", {})
+        small_blend = params.get("smallBlend", np.nan)
+        large_blend = params.get("largeBlend", np.nan)
         for category, level1_data in std_results.items():
             if not isinstance(level1_data, dict): continue
             for level1_key, level2_data in level1_data.items():
@@ -444,12 +446,13 @@ def flatten_results_safe(comparable_results):
                             if metric_name == "raw": continue
                             rows.append({"Scenario": scenario_name, "Type": param_type, "muScalar": mu_scalar, "volScalar": vol_scalar, "Category": category, 
                                          "Level_1": level1_key, "Level_2": level2_key, "Metric": metric_name, "Value": value, "GlobalScalar": global_scalar, 
-                                         "df_t": df_t, "busEpsScalar": bus_eps_scalar, "alphaBus": alpha_bus})
+                                         "df_t": df_t, "busEpsScalar": bus_eps_scalar, "alphaBus": alpha_bus, "smallBlend": small_blend, "largeBlend": large_blend})
                     else:
                         if level2_key == "raw": continue
                         rows.append({"Scenario": scenario_name, "Type": param_type, "muScalar": mu_scalar, "volScalar": vol_scalar, 
                                      "Category": category, "Level_1": level1_key, "Level_2": None, "Metric": level2_key, "Value": metric_data, 
-                                     "GlobalScalar": global_scalar, "df_t": df_t, "busEpsScalar": bus_eps_scalar, "alphaBus": alpha_bus})
+                                     "GlobalScalar": global_scalar, "df_t": df_t, "busEpsScalar": bus_eps_scalar, "alphaBus": alpha_bus, 
+                                     "smallBlend": small_blend, "largeBlend": large_blend})
     df = pd.DataFrame(rows)
     if 'Value' in df.columns: df['Value'] = pd.to_numeric(df['Value'], errors='coerce')
     return df
@@ -559,6 +562,8 @@ tables = {
     "Tail_Risk_Sensitivity": build_clean_table("df_t", "Degrees of Freedom", "df_t"),
     "Business_Wealth_Eps_Sensitivity": build_clean_table("business_wealth", "Business Wealth Eps Scalar", "busEpsScalar"),
     "Business_Wealth_Alpha_Sensitivity": build_clean_table("business_wealth", "Alpha Bus", "alphaBus"),
+    "Business_Wealth_SmallBlend_Sensitivity": build_clean_table("business_wealth", "Small Cap Blend", "smallBlend"),
+    "Business_Wealth_LargeBlend_Sensitivity": build_clean_table("business_wealth", "Large Cap Blend", "largeBlend"),
 }
 
 

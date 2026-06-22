@@ -2504,7 +2504,8 @@ def getWeightsTable(inputs, graphHeight, folder):
   tbl = ax.table(cellText=tableValues.values, colLabels=tableValues.columns, loc='center')
   weightsNumeric = pd.DataFrame(houseTable)
   # print(weightsNumeric)
-  weightsDisplay = weightsNumeric.copy()
+#   weightsDisplay = weightsNumeric.copy()
+  weightsDisplay = displayDF.copy()
   tbl = ax.table(cellText=weightsDisplay.values, colLabels=weightsDisplay.columns, loc='center')
 
 
@@ -2640,7 +2641,7 @@ def getWeightsTable(inputs, graphHeight, folder):
   tbl = ax.table(cellText=tableValues.values, colLabels=tableValues.columns, loc='center')
   weightsNumeric = pd.DataFrame(classTable)
   # print(weightsNumeric)
-  weightsDisplay = weightsNumeric.copy()
+  weightsDisplay = weightDF.copy()
   tbl = ax.table(cellText=weightsDisplay.values, colLabels=weightsDisplay.columns, loc='center')
   # The getColumnColours function and the loop calling it are removed as they are redundant
   # and contain incorrect column references. The coloring logic is consolidated below.
