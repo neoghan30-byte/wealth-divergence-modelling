@@ -4,7 +4,7 @@ import psutil
 import os
 import functools
 import requests
-
+import sys
 if os.path.exists("/content/drive/MyDrive"):
     project_dir = Path("/content/drive/MyDrive/Young_Economist")
 else:
@@ -2348,7 +2348,7 @@ def plotMeanPath(meanPath, households, time, householdDisplayLabels, graphFigSiz
   
   # print(finalVals)
 # meanHousePath()
-def summaryTableShow(aggRes):
+def summaryTableShow(aggRes, folder):
   summary = aggRes['summaryTable']
   makeTablePretty(summary, "Summary", folder, col_width=4)
   
@@ -3861,49 +3861,9 @@ def setup():
       #     }
       #     }
 
-  housePriceLoc = "property_prices_data_RRPI.xlsx"
-  # housePricePath = "/content/drive/MyDrive/Young_Economist" \
-  housePricePath = data_dir / housePriceLoc
-  if os.path.exists(housePricePath):
-    if debug6 == True:
-      print(f"WOOO {housePriceLoc} exists!")
-  if not os.path.exists(housePricePath):
-    raise FileNotFoundError(f"{housePriceLoc}.xlsx not found")
-  df_house_prices = pd.read_excel(housePricePath)
-
-
-  dataHMR = df_house_prices.iloc[5:, 1].astype(float)
-  if debug6 == True:
-    print(f"data for house prices, {dataHMR}")
 
 
 
-
-
-
-  dataLand = df_house_prices.iloc[5:, 2].astype(float)
-  if debug6 == True:
-    print(f"data for house prices (non HMR), {dataLand}")
-
-
-  if debug12 == True:
-    print(f"data for house prices HMR: mean {np.nanmean(dataHMR)} std {np.nanstd(dataHMR)} [:50] {dataHMR[:50]}")
-    print(f"data for house prices non HMR: mean {np.nanmean(dataLand)} np.nanstd {np.nanstd(dataLand)} [:50] {dataLand[:50]}")
-
-
-  depositPricePath = data_dir / "CentralBankDepositData.xlsx" #"/content/drive/MyDrive/Young_Economist/CentralBankDepositData.xlsx" # from (B.1.1 CSV Central Bank retail intrest rates - deposits, outstanding amounts)
-  if os.path.exists(depositPricePath):
-    if debug6 == True:
-      print("WOOO depositPricePath EXISTS. GOSH!!")
-  if not os.path.exists(depositPricePath):
-    raise FileNotFoundError("depositPricePath.xlsx not found")
-  dfDepositPrices = pd.read_excel(depositPricePath)
-
-
-  dataOvernight = dfDepositPrices.iloc[0:, 1].astype(float)
-  dataReedemable = dfDepositPrices.iloc[0:, 2].astype(float)
-  dataAgreedShort = dfDepositPrices.iloc[0:, 3].astype(float)
-  dataAgreedLong = dfDepositPrices.iloc[0:, 4].astype(float)
 
 
 
@@ -5008,287 +4968,6 @@ debugADC = False
 
 import ipywidgets as widgets
 from IPython.display import display, clear_output
-def getGraphs(assetRes):
-  # assetRes = x
-  assetClassColours = {
-      "Equities": "tab:red",
-      "Bonds Short": "tab:blue",
-      "Bonds Long": "tab:purple",
-      "Property": "tab:orange",
-      "Deposits": "tab:green",
-      "Business Wealth": "#FFD700"
-  # "Equities", "Bonds Short": "tab:blue", "Bonds Long": "tab:purple", "Property": "tab:orange", "Deposits"
-  }
-  houseHoldAssetsColours = {
-      "80-100": "tab:red",
-      "0-20": "tab:blue",
-      "40-59": "tab:green"
-  }
-  # for path in mc["samplePathsPortCumR"]:
-  #   for household in path:
-  #     # plt.plot(x, path[household], label=f"Household {household}")
-  #     key = x, path[household], label=f"Household {household}"
-  #     keyList.append(key)
-  #     print(f"(Graphing) path is {path}, household is {household}, path[household] is {path[household]} ")
-  # for path in mc["samplePathsPortCumR"]
-
-
-
-
-
-
-
-
-
-
-  plt.rcParams.update({
-      'font.size': 20,
-      'axes.titlesize': 25,
-  #title
-      'axes.labelsize': 24,
-      'xtick.labelsize': 20,
-      'ytick.labelsize': 20,
-      'legend.fontsize': 20,
-      'figure.titlesize': 20
-  })
-  householdDisplayLabels = {
-      "0-20": "0–20th Income Percentile",
-      "40-59": "40–59th Income Percentile",
-      "80-100": "80–100th Income Percentile"
-  }
-
-
-  x = pd.to_datetime(time)
-  plottingList = {}
-  currentPath = []
-  currentHousehold = []
-
-
-  # for path in mc["sampleHouseholdCum"]:
-  #   for household in path:
-  #     print(f"Household == {household}")
-  #     plottingList[household] = {}
-
-
-  plottingList = {
-      '80-100': [],
-      '40-59': [],
-      '0-20': []
-  }
-  minValue = {
-      '80-100': 0,
-      '40-59': 0,
-      '0-20': 0
-  }
-  maxValue = {
-      '80-100': 0,
-      '40-59': 0,
-      '0-20': 0
-  }
-  minList = {
-      '80-100': [],
-      '40-59': [],
-      '0-20': []
-  }
-  maxList = {
-      '80-100': [],
-      '40-59': [],
-      '0-20': []
-  }
-
-
-  houseHoldAssetsColours = {
-      "80-100": "tab:red",
-      "0-20": "blue",
-      "40-59": "tab:green"
-  }
-  houseHoldAssetsColoursIntense = {
-      "80-100": "deeppink",
-      "0-20": "c",
-      "40-59": "lime"
-  }
-  assetClassColours = {
-      "Equities": "tab:red",
-      "Bonds Short": "tab:blue",
-      "Bonds Long": "tab:purple",
-      "Property": "tab:orange",
-      "Deposits": "tab:green",
-      "Business Wealth": "#FFD700"
-  # "Equities", "Bonds Short": "tab:blue", "Bonds Long": "tab:purple", "Property": "tab:orange", "Deposits"
-  }
-
-
-    # ================================================================================
-  graphFigSize = (14,6)
-  alpha = 0.2
-  def houseCumSampleWithSigmaBanded():
-    x = pd.to_datetime(time)
-    plt.figure(figsize=graphFigSize)
-    for h in households:
-      upper = (assetRes['portCumR'][h] + assetRes['portSigma'][h])*100
-      lower = (assetRes['portCumR'][h] - assetRes['portSigma'][h])*100
-      plt.fill_between(x, lower, upper, color=houseHoldAssetsColoursIntense[h], alpha=1)
-      plt.plot(x, upper, color=houseHoldAssetsColoursIntense[h], alpha=1, linewidth=4, linestyle='--')
-      plt.plot(x, lower, color=houseHoldAssetsColoursIntense[h], alpha=1, linewidth=4, linestyle='--')
-      for path in assetRes['portSampleCum'][h]:
-        plt.plot(x, path*100, color=houseHoldAssetsColours[h], alpha=alpha, linewidth=0.8)
-      # mean
-      # plt.plot(x, assetRes['portCumR'][h]*100, color=houseHoldAssetsColoursIntense[h], label=householdDisplayLabels[h], linewidth=4)
-
-
-      # sigma bands +/- 1, why not
-
-
-    plt.title("Household Portfolio: Sample Cumulative Return with Volatility Bands")
-    plt.xlabel("Date")
-    plt.ylabel("Cumulative Return (%)")
-    plt.gca().yaxis.set_major_formatter(PercentFormatter(1))
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.legend(title="HH Income Group")
-    plt.show()
-
-
-  def householdCumVolatility():
-    x = pd.to_datetime(time)
-    plt.figure(figsize=(14,6))
-    for h in households:
-      plt.plot(x, mc['stdHouseholdCum'][h], label=f"{h} Household Volatility", color=houseHoldAssetsColours[h])
-    plt.title("Household Cumulative Volatility Over Time")
-    plt.xlabel("Time")
-    plt.ylabel("Volatility")
-    plt.gca().yaxis.set_major_formatter(PercentFormatter(1))
-    plt.legend(
-          loc="upper right",
-          fontsize=15,          # smaller font (half if original was ~12)
-          title_fontsize=17,    # smaller title
-          handlelength=1.5,      # shorter legend lines
-          handleheight=1,    # shrink vertical size of handles
-          labelspacing=.6     # reduce vertical spacing between labels
-      )
-    plt.grid(True)
-    plt.show()
-  # running graphs proper
-  houseCumSampleWithSigmaBanded()
-# ============================================================================================================================================================================
-
-
-# ============================================================================================================================================================================
-#initalising
-# userWeights = {h: {ac: {t: 0.0 for t in assetsCompleted[ac]} for ac in assetsCompleted} for h in households}
-# userWeights = assetWeightsOG
-# userClassWeights = assetClassOgWeights
-
-
-# userClassWeights = {h: {ac: 0.0 for ac in assetsCompleted} for h in households}
-# userWeights = assetWeights
-
-
-def interactPortInterface():
-  output = widgets.Output()
-
-
-  #house select
-  householdSelector = widgets.Dropdown(
-      options=households,
-      value=households[0],
-      description="Household:"
-  )
-
-
-  assetClassSelector = widgets.Dropdown(
-      options= list(assetsCompleted.keys()),
-      value= list(assetsCompleted.keys())[0],
-      description = 'Asset Category:'
-  )
-
-
-  # tickerSliders = widgets.VBox()
-
-
-  assetClassSliders = []
-  for assetClass in assetsCompleted:
-    slider = widgets.FloatSlider(
-        value = userClassWeights[householdSelector.value][assetClass],
-        min=0,
-        max=1,
-        step=0.01,
-        description = assetClass,
-        readout_format = '.2f'
-      )
-    assetClassSliders.append(slider)
-  slidersBox = widgets.VBox(assetClassSliders)
-
-
-  def updateSliders(change):
-    h = householdSelector.value
-    for slider in assetClassSliders:
-      slider.value = userClassWeights[h][slider.description]
-    # tickerSliders.children = sliders
-  householdSelector.observe(updateSliders, names='value')
-  # updateTickers(None)
-
-
-  bigRedButton = widgets.Button(description='Simulate Portfolio')
-
-
-  def onButtonPress(button):
-    h = householdSelector.value
-    for slider in assetClassSliders:
-      userClassWeights[h][slider.description] = slider.value
-
-
-    # map to ticker weights
-    for assetClass in assetsCompleted:
-      tickers = assetsCompleted[assetClass]
-      # OG ticker level weights
-      classOGWeights = np.array([
-          assetWeights[h][assetClass][t] for t in tickers
-      ])
-      if classOGWeights.sum() > 0:
-        classOGWeights /= classOGWeights.sum()
-      else:
-        classOGWeights = np.ones_like(classOGWeights) / len(classOGWeights)
-      for i, t in enumerate(tickers):
-        userWeights[h][assetClass][t] = userClassWeights[h][assetClass] * classOGWeights[i]
-
-
-    # assetClass = assetClassSelector.value
-    # for slider in tickerSliders.children:
-    #   userWeights[h][assetClass][slider.description] = slider.value
-    # print(userWeights)
-    # =============================================================
-    # getting assetWeights
-    # ============================================================
-
-
-    aggRes = portfolioAggregation(userWeights)
-
-
-    clear_output(wait=True)
-    print(userWeights)
-    print(f"Results:")
-    runGraphs(aggRes)
-
-
-
-
-  bigRedButton.on_click(onButtonPress)
-#   display(householdSelector, slidersBox, bigRedButton)
-
-
-# interactPortInterface()
-
-
-#=============================================================================================================================================
-
-
-    #                     Interactive local =============================================================================================================================================
-    # =============================================================================================================================================
-    # =============================================================================================================================================
-
-
-    # =============================================================================================================================================
-
 
 # tqdm.tqdm = lambda *args, **kwargs: None
 
@@ -5383,25 +5062,6 @@ if alreadyRun != 1:
 import io # Import the io module
 
 
-# if 10 == 1:
-
-
-#   uploaded = files.upload()
-
-
-#   for fn in uploaded.keys():
-#     # Read the excel file directly from the bytes content
-#     df = pd.read_excel(io.BytesIO(uploaded[fn]))
-#     if debug6 == True:
-#      print(df)
-#     break # Exit loop after processing the first file
-
-
-# from google.colab import drive
-# drive.mount('/content/drive')
-
-
-
 
 # assets = {
 #     "Equities": {
@@ -5455,162 +5115,6 @@ households = ["80-100", "40-59", "0-20"]
 # assetClass = ["Equities", "Bonds Short", "Bonds Long", "Property", "Deposits"]
 
 
-# assetWeights = {
-#     "80-100": {
-#         "Equities": {
-#           '^GSPC': listD10[0],
-#           '^FTSE': listD10[1],
-#           '^STOXX': listD10[2],
-#           '^IETP': listD10[3],
-#           'IWDA.L': listD10[4],
-#               },
-#         "Bonds Short": {
-#             # 'IB01.L': listD10[5],
-#             'SHY': listD10[5],
-#             'IGLS.L': listD10[6],
-#             'SYB3.SW': listD10[7],
-#             'Ire Short': listD10[8],
-#             'IAGG': listD10[9],
-#               },
-#         "Bonds Long": {
-#             'IEF': listD10[10],
-#             'IGLT.L': listD10[11],
-#             'SYBB.DE': listD10[12],
-#             'Ire Long': listD10[13],
-#             'EUN3.DE': listD10[14],
-#             },
-#         "Property":{
-#             'Land Overall': listD10[15],
-#             'Land HMR': listD10[16],
-#             'Land': listD10[17],
-#             'Land Other': listD10[18],
-#             'Land UK': listD10[19],
-#         },
-#         "Deposits":{
-#             'Overnight_Ire': listD10[20],
-#             'ReedemableAtNotice': listD10[21],
-#             'Agreed Maturity < 2': listD10[22],
-#             'Agreed Maturity > 2': listD10[23],
-#             },
-#         "Business Wealth":{
-#             "Business Wealth S.E": listD10[24],
-#         }
-#         },
-#     "0-20": {
-#         "Equities": {
-#           '^GSPC': listD2[0],
-#           '^FTSE': listD2[1],
-#           '^STOXX': listD2[2],
-#           '^IETP': listD2[3],
-#           'IWDA.L': listD2[4],
-#               },
-#         "Bonds Short": {
-#             # 'IB01.L': listD2[5],
-#             'SHY': listD2[5],
-#             'IGLS.L': listD2[6],
-#             'SYB3.SW': listD2[7],
-#             'Ire Short': listD2[8],
-#             'IAGG': listD2[9],
-#               },
-#         "Bonds Long": {
-#             'IEF': listD2[10],
-#             'IGLT.L': listD2[11],
-#             'SYBB.DE': listD2[12],
-#             'Ire Long': listD2[13],
-#             'EUN3.DE': listD2[14],
-#             },
-#         "Property":{
-#             'Land Overall': listD2[15],
-#             'Land HMR': listD2[16],
-#             'Land': listD2[17],
-#             'Land Other': listD2[18],
-#             'Land UK': listD2[19],
-#         },
-#         "Deposits":{
-#             'Overnight_Ire': listD2[20],
-#             'ReedemableAtNotice': listD2[21],
-#             'Agreed Maturity < 2': listD2[22],
-#             'Agreed Maturity > 2': listD2[23],
-#         },
-#         "Business Wealth":{
-#             "Business Wealth S.E": listD2[24],
-#         }
-#         },
-#     "40-59": {
-#         "Equities": {
-#           '^GSPC': listD6[0],
-#           '^FTSE': listD6[1],
-#           '^STOXX': listD6[2],
-#           '^IETP': listD6[3],
-#           'IWDA.L': listD6[4],
-#               },
-#         "Bonds Short": {
-#             # 'IB01.L': listD6[5],
-#             'SHY': listD6[5],
-#             'IGLS.L': listD6[6],
-#             'SYB3.SW': listD6[7],
-#             'Ire Short': listD6[8],
-#             'IAGG': listD6[9],
-#               },
-#         "Bonds Long": {
-#             'IEF': listD6[10],
-#             'IGLT.L': listD6[11],
-#             'SYBB.DE': listD6[12],
-#             'Ire Long': listD6[13],
-#             'EUN3.DE': listD6[14],
-#             },
-#         "Property":{
-#             'Land Overall': listD6[15],
-#             'Land HMR': listD6[16],
-#             'Land': listD6[17],
-#             'Land Other': listD6[18],
-#             'Land UK': listD6[19],
-#         },
-#         "Deposits":{
-#             'Overnight_Ire': listD6[20],
-#             'ReedemableAtNotice': listD6[21],
-#             'Agreed Maturity < 2': listD6[22],
-#             'Agreed Maturity > 2': listD6[23],
-#         },
-#         "Business Wealth":{
-#             "Business Wealth S.E": listD6[24],
-#         }
-#         }
-#     # "Template": {
-    #     "Equities": {
-    #       '^GSPC':
-    #       '^FTSE':
-    #       '^STOXX':
-    #       '^IETP':
-    #       'IWDA.L':
-    #           },
-    #     "Bonds Short": {
-    #         'IB01.L':
-    #         'IGLS.L':
-    #         'SYB3.SW':
-    #         'Ire Short':
-    #         'IAGG':
-    #           },
-    #     "Bonds Long": {
-    #         'IEF':
-    #         'IGLT.L':
-    #         'SYBB.DE':
-    #         'Ire Long':
-    #         'EUN3.DE':
-    #         },
-    #     "Property":{
-    #         'Overall Ire'
-    #         'Overall UK'
-    #     },
-    #     "Deposits":{
-    #         'Overnight Ire':
-    #         'Overnight UK':
-    #         'Agreed Maturity Ire':
-    #         'Agreed Maturity UK':
-    #     }
-    #     }
-    # }
-
 
 
 
@@ -5655,7 +5159,50 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
 
 
 
+  def get_price_data(data_dir):
+    housePriceLoc = "property_prices_data_RRPI.xlsx"
+    # housePricePath = "/content/drive/MyDrive/Young_Economist" \
+    housePricePath = data_dir / housePriceLoc
+    if os.path.exists(housePricePath):
+      if debug6 == True:
+        print(f"WOOO {housePriceLoc} exists!")
+    if not os.path.exists(housePricePath):
+      raise FileNotFoundError(f"{housePriceLoc}.xlsx not found")
+    df_house_prices = pd.read_excel(housePricePath)
 
+
+    dataHMR = df_house_prices.iloc[5:, 1].astype(float)
+    if debug6 == True:
+      print(f"data for house prices, {dataHMR}")
+
+
+
+
+
+
+    dataLand = df_house_prices.iloc[5:, 2].astype(float)
+    if debug6 == True:
+      print(f"data for house prices (non HMR), {dataLand}")
+
+
+    if debug12 == True:
+      print(f"data for house prices HMR: mean {np.nanmean(dataHMR)} std {np.nanstd(dataHMR)} [:50] {dataHMR[:50]}")
+      print(f"data for house prices non HMR: mean {np.nanmean(dataLand)} np.nanstd {np.nanstd(dataLand)} [:50] {dataLand[:50]}")
+
+
+    depositPricePath = data_dir / "CentralBankDepositData.xlsx" #"/content/drive/MyDrive/Young_Economist/CentralBankDepositData.xlsx" # from (B.1.1 CSV Central Bank retail intrest rates - deposits, outstanding amounts)
+    if os.path.exists(depositPricePath):
+      if debug6 == True:
+        print("WOOO depositPricePath EXISTS. GOSH!!")
+    if not os.path.exists(depositPricePath):
+      raise FileNotFoundError("depositPricePath.xlsx not found")
+    dfDepositPrices = pd.read_excel(depositPricePath)
+    
+    dataOvernight = dfDepositPrices.iloc[0:, 1].astype(float)
+    dataReedemable = dfDepositPrices.iloc[0:, 2].astype(float)
+    dataAgreedShort = dfDepositPrices.iloc[0:, 3].astype(float)
+    dataAgreedLong = dfDepositPrices.iloc[0:, 4].astype(float)
+    return dataHMR, dataLand, dataOvernight, dataReedemable, dataAgreedShort, dataAgreedLong
 
   # for assetClass in assets:
   #   if assetClass not in returnsDict:
@@ -5740,7 +5287,8 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
     return(dailyRetSimple)
   start = dt.datetime(2000, 1, 1)
   end = dt.datetime(2025, 1, 1)
-  
+
+  dataHMR, dataLand, dataOvernight, dataReedemable, dataAgreedShort, dataAgreedLong = get_price_data(data_dir)
   monthLength = 30
   for assetClass in assets:
     for ticker in assets[assetClass]:
@@ -6848,122 +6396,6 @@ import os
 
 
 
-
-
-
-
-
-
-def getGraphs(time, r, cumR, portFitSigma, portSigma, title, areDeposit):
-  x = pd.to_datetime(time)
-  print(f"shape / type of x (time), {x.shape}, {type(x)}")
-
-
-
-
-  plt.xlabel = matplotlib.pyplot.xlabel
-  plt.ylabel = matplotlib.pyplot.ylabel
-  if isinstance(r, list):
-    for p in r:
-      plt.plot(x, p, alpha=alpha)
-  else:
-    plt.plot(x, r)
-  plt.title(f"Simulated {title} Return %")
-  plt.xlabel("Date")
-  plt.ylabel("Simulated Return %")
-  plt.savefig(os.path.join(folder, "Simulated_Ret_Pct.png"), dpi=300)
-  plt.show()
-
-
-
-
-  if isinstance(cumR, list):
-    for p in cumR:
-      plt.plot(x, p, alpha=alpha)
-  else:
-    plt.plot(x, cumR)
-  plt.title(f"Simulated {title} Return")
-  plt.xlabel("Date")
-  plt.ylabel("Simulated Cumulative Returns")
-  plt.savefig(os.path.join(folder, "Simulated_Cum_Ret.png"), dpi=300)
-  plt.show()
-
-
-
-
-  #______Historical vs simulated volatility____
-  #gaurd - ensuring arrays are  proper len
-  if portSigma is not None and portFitSigma is not None and 3 == 2:
-    portFitSigma = np.asarray(portFitSigma)
-
-
-    if portFitSigma.size == 0:
-      print("Woah hang on, fit sigma array is empty!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-      histVol = np.array([])
-    else:
-      histVol = portFitSigma[-500:]
-
-
-    simHorizon = 300
-
-
-    if isinstance(portSigma, list):
-      for p in portSigma:
-        if p.size == 0:
-          print("Woah hang on, sim sigma array is empty!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-          futureVol = np.array([])
-        else:
-          futureVol = p[:simHorizon]
-
-
-        if len(histVol) == 0:
-          print("HistVol = Empty")
-        else:
-          histIndex = x[-len(histVol):]
-          plt.plot(histIndex, histVol, alpha=alpha) # , label=f"Historical {title} GARCH Volatility"
-          plt.xlabel("Date")
-          plt.ylabel("Volatility")
-
-
-
-
-        if len(futureVol) > 0:
-          futureStart = x[-1] + pd.Timedelta(days=1)
-          futureIndex = pd.date_range(start=futureStart, periods=len(futureVol), freq='B')
-          plt.plot(futureIndex, futureVol) # , label=f"Simulated {title} Future Volatility"
-
-
-    else:
-      portSigma = np.asarray(portSigma)
-
-
-      if portSigma.size == 0:
-        print("Woah hang on, sim sigma array is empty!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        futureVol = np.array([])
-      else:
-        futureVol = portSigma[:simHorizon]
-
-
-      if len(histVol) == 0:
-        print("HistVol = Empty")
-      else:
-        histIndex = x[-len(histVol):]
-        plt.plot(histIndex, histVol) # label=f"Historical {title} GARCH Volatility"
-        plt.xlabel("Date")
-        plt.ylabel("Volatility")
-
-
-
-
-      if len(futureVol) > 0:
-        futureStart = x[-1] + pd.Timedelta(days=1)
-        futureIndex = pd.date_range(start=futureStart, periods=len(futureVol), freq='B')
-        plt.plot(futureIndex, futureVol) # , label=f"Simulated {title} Future Volatility"
-    plt.title(f"Historical vs Simulated {title} Volatility")
-    plt.xticks(rotation=45)
-    plt.savefig(os.path.join(folder, "Vol_Comparision2.png"), dpi=300)
-    # plt.legend()
-    plt.show()
 
 
 
@@ -8186,200 +7618,6 @@ def runChunks(inputParameters, coeffsDict, fullCorr, allTickersOrdered, assetWei
       for num in range(0, currentNum, chunkSize):
         if num % (4 * chunkSize):
           convergencePoints.append(num)
-
-      # convergencePoints.append(currentNum)
-    #   def check_drive_mounted(path="/content/drive/MyDrive"):
-    #     if not os.path.exists(path):
-    #         print("Drive disconnected — remounting...")
-
-    #         drive.mount('/content/drive', force_remount=True)
-    #   check_drive_mounted()
-      # results = run_combined_analysis(
-      #     chunk_folder    = data_dir / "chunkResults", #/content/drive/MyDrive/Young_Economist/chunkResults",
-      #     coeffs_dict     = coeffsDict,
-      #     assets_completed= assetsCompleted,
-      #     asset_weights   = assetWeights,
-      #     households      = households,
-      #     time_hist       = time,
-      #     V_num           = V_num,
-      #     convergence_checkpoints = convergencePoints,
-      #     save_folder     = data_dir / "graphs" #"/content/drive/MyDrive/Young_Economist/graphs",
-      # )
-      
-  # Merge chunkResult into overAllResults safely
-#   if overAllResults is None:
-#       overAllResults = copy.deepcopy(chunkResult)
-#   else:
-#       for key in chunkResult:
-#           val = chunkResult[key]
-
-
-#           # Sub-dictionaries
-#           if isinstance(val, dict):
-
-
-#               if key not in overAllResults:
-#                   overAllResults[key] = {}
-#               for subkey, subval in val.items():
-#                   if subkey in overAllResults[key]:
-#                       existing = overAllResults[key][subkey]
-
-
-#                       # Convert scalars to list
-#                       if np.isscalar(existing):
-#                           existing = [existing]
-#                       if np.isscalar(subval):
-#                           subval = [subval]
-
-
-#                       # Convert 0-D arrays to 1-D arrays
-#                       if isinstance(existing, np.ndarray) and existing.ndim == 0:
-#                           existing = existing.reshape(1)
-#                       if isinstance(subval, np.ndarray) and subval.ndim == 0:
-#                           subval = subval.reshape(1)
-
-
-#                       # Merge
-#                       if isinstance(existing, np.ndarray) and isinstance(subval, np.ndarray):
-#                           overAllResults[key][subkey] = np.concatenate([existing, subval], axis=0)
-#                       elif isinstance(existing, list) and isinstance(subval, list):
-#                           overAllResults[key][subkey].extend(subval)
-#                       else:
-#                           # Mixed types -> convert to list
-#                           overAllResults[key][subkey] = list(existing) + list(subval)
-#                   else:
-#                       # New subkey
-#                       if np.isscalar(subval):
-#                           overAllResults[key][subkey] = [subval]
-#                       else:
-#                           overAllResults[key][subkey] = subval
-
-
-#           # Lists
-#           elif isinstance(val, list):
-#               if key not in overAllResults:
-#                   overAllResults[key] = []
-#               overAllResults[key].extend(val)
-
-
-#           # NumPy arrays
-#           elif isinstance(val, np.ndarray):
-#               if key not in overAllResults:
-#                   overAllResults[key] = val
-#               else:
-#                   existing = overAllResults[key]
-#                   if np.isscalar(existing):
-#                       existing = np.array([existing])
-#                   if val.ndim == 0:
-#                       val = val.reshape(1)
-#                   overAllResults[key] = np.concatenate([existing, val], axis=0)
-
-
-#           # Scalars
-#           else:
-#               if key not in overAllResults:
-#                   overAllResults[key] = [val]
-#               else:
-#                   existing = overAllResults[key]
-#                   if isinstance(existing, list):
-#                       existing.append(val)
-#                       overAllResults[key] = existing
-#                   else:
-#                       overAllResults[key] = [existing, val]
-
-
-#   del chunkResult
-#   gc.collect()
-# print(f"Finished Monte Carlo.")
-
-
-# filePath = os.path.join(folder,"overAllResults2.pkl")
-# with open(filePath, "wb") as f:
-#   pickle.dump(overAllResults, f)
-# print("Saved Sim Results")
-
-
-# =============================================================================================================================================#                               Graphs =============================================================================================================================================# =============================================================================================================================================# =============================================================================================================================================# =============================================================================================================================================# =============================================================================================================================================# =============================================================================================================================================# =============================================================================================================================================
-# # Collect all saved chunk files in order
-# chunkFiles = sorted(
-#     [f for f in os.listdir(chunkFolder) if f.endswith('.pkl')],
-#     key=lambda f: int(f.split('_')[2])   # sort by start index
-# )
-
-# # accumulate weighted mean paths and sample paths across all chunks.
-# # The strategy: keep a running sum of (mean path * nPaths) then divide by
-# # total paths at the end. This gives the correct grand mean without loading
-# # everything into memory simultaneously.
-
-# portCumR_sum    = {h: None for h in households}   # running sum for mean
-# portSigma_sum   = {h: None for h in households}
-# portRet_sum     = {h: None for h in households}
-# portSampleCum   = {h: [] for h in households}     # collect sample paths
-# totalPathsLoaded = 0
-
-# for fname in chunkFiles:
-#     fpath = os.path.join(chunkFolder, fname)
-#     with open(fpath, "rb") as f:
-#         saved = pickle.load(f)
-
-#     mc_chunk  = saved['chunkResults']['monteCarlo']
-#     nInChunk  = len(mc_chunk['allHouseholdCum'])   # number of paths in chunk
-
-#     for h in households:
-#         # Mean path for this chunk (already averaged within the chunk)
-#         mean_cum   = mc_chunk['meanHouseholdCum'][h]
-#         mean_ret   = mc_chunk['meanHouseholdRet'][h]
-#         mean_sigma = mc_chunk['meanHouseholdSigma'][h]
-
-#         if portCumR_sum[h] is None:
-#             # First chunk — initialise the accumulators
-#             portCumR_sum[h]   = mean_cum   * nInChunk
-#             portRet_sum[h]    = mean_ret   * nInChunk
-#             portSigma_sum[h]  = mean_sigma * nInChunk
-#         else:
-#             portCumR_sum[h]  += mean_cum   * nInChunk
-#             portRet_sum[h]   += mean_ret   * nInChunk
-#             portSigma_sum[h] += mean_sigma * nInChunk
-
-#         # Collect sample paths (these are individual paths for plotting)
-#         for path in mc_chunk['sampleHouseholdCum']:
-#             portSampleCum[h].append(path[h])
-
-#     totalPathsLoaded += nInChunk
-#     print(f"  Loaded chunk {fname}: {nInChunk} paths "
-#           f"(total so far: {totalPathsLoaded})")
-
-# # Divide accumulated sums by total paths to get the true grand mean
-# portCumR  = {h: portCumR_sum[h]  / totalPathsLoaded for h in households}
-# portRet   = {h: portRet_sum[h]   / totalPathsLoaded for h in households}
-# portSigma = {h: portSigma_sum[h] / totalPathsLoaded for h in households}
-
-# # Also need per-asset mean paths and sigma paths for attribution graphs.
-# # These live in the asset-level state file you already load at the top.
-# # fullSavedAssetRes already has 'meanAssetPath' and 'sigmaAssetPath'.
-
-# # Build aggRes in the exact shape portfolioAggregation() would return,
-# # so getGraphs() and everything downstream works unchanged.
-# aggRes = {
-#     "portCumR":      portCumR,
-#     "portRet":       portRet,
-#     "portSigma":     portSigma,
-#     "portSampleCum": portSampleCum,
-#     "summaryTable":  pd.DataFrame([
-#         {
-#             "Household":             h,
-#             "Mean Cumulative Return": portCumR[h][-1],
-#             "Mean Std Daily Return":  np.nanmean(portSigma[h]),
-#             "Mean Daily Return":      np.nanmean(portRet[h]),
-#         }
-#         for h in households
-#     ])
-# }
-
-# print(f"\nAggregation complete. Total paths: {totalPathsLoaded}")
-# for h in households:
-#     print(f"  [{h}] Final cumulative return: {portCumR[h][-1]:.2%}")
-
 #=================
 def monte_carlo_convergence_chunked(chunkFolder, households, pathCountsConverge):
     """
@@ -8492,414 +7730,6 @@ debugADC = False
 
 
 import matplotlib.ticker as mtick
-def getGraphs():
-  folder = graph_dir #"/content/drive/MyDrive/Young_Economist/graphs"
-  if not os.path.exists(folder):
-    os.makedirs(folder)
-    print("huh")
-  graphFigSize = (14,6)
-  alpha = 0.2
-  titleWeight = 'normal'
-  graphHeight = 14
-  plt.rcParams.update({
-      'font.family': 'DejaVu Sans',
-      'font.size': 16,
-      'axes.titlesize': 27,
-  #title
-      'axes.labelsize': 24,
-      'xtick.labelsize': 16,
-      'ytick.labelsize': 16,
-      'legend.fontsize': 16,
-      'legend.title_fontsize': 15,
-      'figure.titlesize': 26,
-      'axes.spines.top': False,
-      'axes.spines.right': False,
-
-
-      'axes.grid': True
-
-
-
-
-    })
-
-
-  householdDisplayLabels = {
-      "0-20": "0–20th Income Percentile",
-      "40-59": "40–59th Income Percentile",
-      "80-100": "80–100th Income Percentile"
-  }
-
-
-  assetRes = aggRes
-  assetClassColours = {
-      "Equities": "tab:red",
-      "Bonds Short": "tab:blue",
-      "Bonds Long": "tab:purple",
-      "Property": "tab:orange",
-      "Deposits": "tab:green",
-      "Business Wealth": "#FFD700"
-  # "Equities", "Bonds Short": "tab:blue", "Bonds Long": "tab:purple", "Property": "tab:orange", "Deposits"
-  }
-  houseHoldAssetsColours = {
-      "80-100": "tab:red",
-      "0-20": "tab:blue",
-      "40-59": "tab:green"
-  }
-
-
-
-
-
-
-  x = pd.to_datetime(time)
-  plottingList = {}
-  currentPath = []
-  currentHousehold = []
-
-
-  # for path in mc["sampleHouseholdCum"]:
-  #   for household in path:
-  #     print(f"Household == {household}")
-  #     plottingList[household] = {}
-
-
-  plottingList = {
-      '80-100': {h: [] for h in households},
-      '40-59': {h: [] for h in households},
-      '0-20': {h: [] for h in households}
-  }
-  plottingList = {
-      '80-100': [],
-      '40-59': [],
-      '0-20': []
-  }
-  minValue = {
-      '80-100': 0,
-      '40-59': 0,
-      '0-20': 0
-  }
-  maxValue = {
-      '80-100': 0,
-      '40-59': 0,
-      '0-20': 0
-  }
-  minList = {
-      '80-100': [],
-      '40-59': [],
-      '0-20': []
-  }
-  maxList = {
-      '80-100': [],
-      '40-59': [],
-      '0-20': []
-  }
-
-
-  houseHoldAssetsColours = {
-      "80-100": "tab:red",
-      "0-20": "blue",
-      "40-59": "tab:green"
-  }
-  houseHoldAssetsColoursCumPaths = {
-      "80-100": "crimson",
-      "0-20": "mediumblue",
-      "40-59": "green"
-  }
-  houseHoldAssetsColoursIntense = {
-      "80-100": "deeppink",
-      "0-20": "c",
-      "40-59": "lime"
-  }
-  assetClassColours = {
-      "Equities": "tab:red",
-      "Bonds Short": "tab:blue",
-      "Bonds Long": "tab:purple",
-      "Property": "tab:orange",
-      "Deposits": "tab:green",
-      "Business Wealth": "#FFD700"
-  # "Equities", "Bonds Short": "tab:blue", "Bonds Long": "tab:purple", "Property": "tab:orange", "Deposits"
-  }
-
-
-    # ================================================================================
-  def makeTablePretty(df, name, folder, fontsize=16, col_width=4, row_height=1, header_color='darkslategray', row_colors=['lightgray', 'w'], edge_color='w'):
-
-
-      # def smartRound(y, maxDec=7):
-      #   x = y
-      #   if pd.isnull(x):
-      #     return ""
-      #   if x == 0:
-      #     return 0
-      #   mag = -int(np.floor(np.log10(abs(x))))
-      #   decimals = max(0, min(mag, maxDec))
-      #   return round(x, decimals + 2)
-      def smartRound(y):
-        if pd.isnull(y):
-            return ""
-        if y == 0:
-            return "0.00"
-        if isinstance(y, (int, np.integer)):
-            return str(y)
-        
-      
-        return f"{y * 100:.3f}"
-
-
-      dfRound = df.copy()
-      for col in dfRound.select_dtypes(include=[np.number]):
-
-
-      # numCol = dfRound.select_dtypes(include=['float', 'int']).columns
-        dfRound[col] = dfRound[col].apply(smartRound)
-      df = dfRound
-      fig_width = col_width * len(df.columns)
-      fig_height = row_height * (len(df)) + 1
-
-
-      fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-      ax.axis('off')
-
-
-      mpl_table = ax.table(
-          cellText=df.values,
-          colLabels=df.columns,
-          cellLoc='center',
-          loc='center'
-      )
-      mpl_table.scale(1, 1.5)
-      plt.tight_layout(pad=0)
-      # plt.subplots_adjust(top=1, bottom=0, left=0, right=1)
-      plt.subplots_adjust(top=0.88, bottom=0.05)
-      ax.set_position([0, 0, 1, 1])
-      mpl_table.auto_set_font_size(False)
-      mpl_table.set_fontsize(fontsize)
-
-
-      # Color header
-      for (i, j), cell in mpl_table.get_celld().items():
-          if i == 0:
-              cell.set_text_props(weight='bold', color='w')
-              cell.set_facecolor(header_color)
-          else:
-              cell.set_facecolor(row_colors[i % len(row_colors)])
-          cell.set_edgecolor(edge_color)
-
-
-
-
-      saveName = name.replace(" ", "_")
-      filename = f"{saveName}.png"
-      plt.title(name)
-      # plt.tight_layout()
-      plt.savefig(os.path.join(folder, filename), dpi=600)
-      plt.show()
-      plt.close()
-
-
-
-
-  def houseCumSampleWithSigmaBanded(time, graphFigSize, assetRes, households):
-    x = pd.to_datetime(time[:])
-    sampleSummaryRows = []
-    # sigma bands removed
-    plt.figure(figsize=graphFigSize)
-    for h in households:
-    #   upper = (assetRes['portCumR'][h] + assetRes['portSigma'][h])*100
-    #   lower = (assetRes['portCumR'][h] - assetRes['portSigma'][h])*100
-    #   plt.fill_between(x, lower, upper, color=houseHoldAssetsColoursIntense[h], alpha=1)
-    #   plt.plot(x, upper, color=houseHoldAssetsColoursIntense[h], alpha=1, linewidth=4, linestyle='--')
-    #   plt.plot(x, lower, color=houseHoldAssetsColoursIntense[h], alpha=1, linewidth=4, linestyle='--')
-      for path in assetRes['portSampleCum'][h]:
-        if h == '40-59':
-          # alpha = alpha * 1.5
-          plt.plot(x, path*100, color=houseHoldAssetsColoursCumPaths[h], alpha=(alpha*1.3), linewidth=0.8)
-
-
-
-
-        else:
-          plt.plot(x, path*100, color=houseHoldAssetsColoursCumPaths[h], alpha=alpha, linewidth=0.8)
-        # plottingList[h].append(path[-1])
-      # mean
-      # plt.plot(x, assetRes['portCumR'][h]*100, color=houseHoldAssetsColoursIntense[h], label=householdDisplayLabels[h], linewidth=4)
-      # print(plottingList[h])
-      sampleSummaryRows.append({
-          "Household": h,
-          "Std of Paths Cumulative Return": np.nanstd(plottingList[h]),
-          "Maximum Return": max(plottingList[h]),
-          "Minimum Return": min(plottingList[h])
-      })
-      # sigma bands +/- 1, why not
-
-    plt.plot([], [], label=f"{householdDisplayLabels['0-20']}") #B R G
-    plt.plot([], [], label=f"{householdDisplayLabels['80-100']}")
-    plt.plot([], [], label=f"{householdDisplayLabels['40-59']}")
-    plt.title("Household Portfolio: Cumulative Return Paths", weight=titleWeight)
-    plt.xlabel("Date")
-    plt.ylabel("Cumulative Return (%)")
-    plt.gca().yaxis.set_major_formatter(mtick.PercentFormatter(100.0))
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.legend(title="HH Income Group")
-    plt.savefig(os.path.join(folder, "cumRpaths.png"), dpi=600)
-    plt.show()
-    # sampleSummary = pd.DataFrame(sampleSummaryRows)
-    # makeTablePretty(sampleSummary, 'Sample Path Summary', folder)
-
-
-
-
-  def householdVolatility():
-    # x = pd.to_datetime(time)
-    plt.figure(figsize=graphFigSize)
-    for h in households:
-      plt.plot(x, assetRes['portSigma'][h], label=f"{h} Household Volatility", color=houseHoldAssetsColours[h])
-    plt.title("Household Daily Volatility Over Time")
-    plt.xlabel("Time")
-    plt.ylabel("Volatility")
-    plt.gca().yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
-    plt.legend(
-          loc="upper right",
-          fontsize=15,          # smaller font (half if original was ~12)
-          title_fontsize=17,    # smaller title
-          handlelength=1.5,      # shorter legend lines
-          handleheight=1,    # shrink vertical size of handles
-          labelspacing=.6     # reduce vertical spacing between labels
-      )
-    plt.grid(True)
-    plt.savefig(os.path.join(folder, "householdVolatility.png"), dpi=600)
-    plt.show()
-  householdVolatility()
-  def assetClassVolatilityBar():
-    # x = pd.to_datetime(time)
-    assetClassVolatility = {}
-    plt.figure(figsize=graphFigSize)
-    sigmaList = []
-    colourList = []
-    labelList = []
-    for assetClass in fullSavedAssetResFull['sigmaAssetClassPath']:
-      sigmaList.append(np.nanmean(fullSavedAssetResFull['sigmaAssetClassPath'][assetClass]))
-      labelList.append(f"{assetClass}")
-      colourList.append(assetClassColours[assetClass])
-    # plt.bar(label=f"{assetClass}", color=assetClassColours[assetClass], alpha=alpha)
-    plt.bar(labelList, sigmaList, color=colourList)
-    plt.title(f"Mean Asset Class Volatility", weight=titleWeight)
-    plt.xlabel("Asset Class")
-    plt.xticks(labelList, rotation=35, ha='right' )
-    plt.ylabel("Volatility")
-    plt.gca().yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
-    plt.legend(
-          loc="upper right",
-          fontsize=15,          # smaller font (half if original was ~12)
-          title_fontsize=17,    # smaller title
-          handlelength=1.5,      # shorter legend lines
-          handleheight=1,    # shrink vertical size of handles
-          labelspacing=.6     # reduce vertical spacing between labels
-      )
-    plt.grid(False)
-    plt.savefig(os.path.join(folder, "assetClassVolBar.png"), dpi=600)
-    plt.show()
-  # assetClassVolatilityBar()
-
-
-  def getHouseholdVolTable():
-    houseVolatilityRows = []
-    for h in households:
-      sigma = aggRes['portSigma'][h]
-      houseVolatilityRows.append({
-              "Household": h,
-              "Final Volatility": sigma[-1],
-              "Mean Volatility": np.nanmean(sigma),
-              "Std of Volatility": np.nanstd(sigma)
-          })
-    houseVolTable = pd.DataFrame(houseVolatilityRows)
-    #sort
-    houseVolTable = houseVolTable.sort_values(by=["Household"]).reset_index(drop=True)
-
-
-    print("\n=== Household Volatility Summary ===")
-    # print(houseVolTable)
-    makeTablePretty(houseVolTable, 'Household Volatility Summary', folder)
-  getHouseholdVolTable()
-
-
-  def getAssetVolTable():
-    assetVolatilityRows = []
-    for assetClass in fullSavedAssetResFull['sigmaAssetClassPath']:
-        sigma = fullSavedAssetResFull['sigmaAssetClassPath'][assetClass]
-        assetVolatilityRows.append({
-            "Asset Class": assetClass,
-            "Final Volatility": sigma[-1],
-            "Mean Volatility": np.nanmean(sigma),
-            "Std of Volatility": np.nanstd(sigma)
-          })
-    assetVolTable = pd.DataFrame(assetVolatilityRows)
-    #sort
-    assetVolTable = assetVolTable.sort_values(by=["Asset Class"]).reset_index(drop=True)
-
-
-    print("\n=== Asset Class Volatility Summary ===")
-    makeTablePretty(assetVolTable, 'Asset Class Volatility Summary', folder)
-  # getAssetVolTable()
-
-
-  def meanHousePath():
-    meanSummaryRows = []
-    plt.figure(figsize= graphFigSize)
-    finalVals = {h: 0 for h in households}
-    for h in households:
-      meanPath = aggRes['portCumR'][h]
-      finalVals[h] = aggRes['portCumR'][h][-1]
-      meanSummaryRows.append({
-            "Household": h,
-            "Final Return": finalVals[h],
-            # "Std of Paths Cumulative Return": np.nanstd(finalVals[h]),
-            # "Maximum Return": ,
-            # "Minimum Return": min(plottingList[h])
-        })
-
-
-      plt.plot(x, meanPath, color=houseHoldAssetsColours[h], label=f"{householdDisplayLabels[h]}")
-
-
-
-    plt.title("Cumulative Returns: Mean Household Path", weight=titleWeight)
-    plt.xlabel("Date")
-    plt.ylabel("Cumulative Return %")
-    ax = plt.gca()
-    ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
-    plt.legend(
-        [householdDisplayLabels[h] for h in households], title="HH Income Group")
-    plt.legend(
-      loc="upper left",
-      fontsize=20,          # smaller font (half if original was ~12)
-      title_fontsize=22,    # smaller title
-      handlelength=2,      # shorter legend lines
-      handleheight=1.5,    # shrink vertical size of handles
-      labelspacing=.8     # reduce vertical spacing between labels
-    )
-    plt.xticks(rotation=45)
-    plt.grid(True)
-    plt.savefig(os.path.join(folder, "meanPath.png"), dpi=600)
-    plt.show()
-    meanSummary = pd.DataFrame(meanSummaryRows)
-    makeTablePretty(meanSummary, 'Mean Path Final Returns', folder)
-    # print(finalVals)
-  # meanHousePath()
-  def summaryTableShow():
-    summary = aggRes['summaryTable']
-    makeTablePretty(summary, "Summary", folder, col_width=4)
-  def callAllGraphs():
-
-
-    meanHousePath()
-    getHouseholdVolTable()
-    getAssetVolTable()
-    assetClassVolatilityBar()
-    houseCumSampleWithSigmaBanded()
-    summaryTableShow()
-  callAllGraphs()
 # =================================================================================================================================
 #
 # ====    ====    ====    ====    ====    ====    ====    ====    ====    ====    ====    ====    ====    ====    ====    =====
@@ -9293,10 +8123,13 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
           households = cached["households"]
           # comparable_results_new = cached["comparable_results_new"]
           cached_sr = cached.get("sensitivityResults", {})
+          scenarioName = "baseline"
           if scenarioName in cached_sr:
-              sensitivityResults[scenarioName] = cached_sr[scenarioName]
+              comparable_results_new = cached_sr[scenarioName]
           elif scenarioName in cached.get("comparable_results_new", {}):
-              sensitivityResults[scenarioName] = cached["comparable_results_new"][scenarioName]
+              comparable_results_new = cached["comparable_results_new"][scenarioName]
+          else:
+             comparable_results_new = cached.get("comparable_results_new", None)
       else:
           metric_results = get_metric_analysis(
             chunk_folder=cfg["chunkFolder"],
