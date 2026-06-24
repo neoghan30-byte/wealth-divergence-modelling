@@ -3811,6 +3811,70 @@ def setup():
       #         'Agreed Maturity UK':
       #     }
       #     }
+
+  housePriceLoc = "property_prices_data_RRPI.xlsx"
+  # housePricePath = "/content/drive/MyDrive/Young_Economist" \
+  housePricePath = data_dir / housePriceLoc
+  if os.path.exists(housePricePath):
+    if debug6 == True:
+      print(f"WOOO {housePriceLoc} exists!")
+  if not os.path.exists(housePricePath):
+    raise FileNotFoundError(f"{housePriceLoc}.xlsx not found")
+  df_house_prices = pd.read_excel(housePricePath)
+
+
+  dataHMR = df_house_prices.iloc[5:, 1].astype(float)
+  if debug6 == True:
+    print(f"data for house prices, {dataHMR}")
+
+
+
+
+
+
+  dataLand = df_house_prices.iloc[5:, 2].astype(float)
+  if debug6 == True:
+    print(f"data for house prices (non HMR), {dataLand}")
+
+
+  if debug12 == True:
+    print(f"data for house prices HMR: mean {np.nanmean(dataHMR)} std {np.nanstd(dataHMR)} [:50] {dataHMR[:50]}")
+    print(f"data for house prices non HMR: mean {np.nanmean(dataLand)} np.nanstd {np.nanstd(dataLand)} [:50] {dataLand[:50]}")
+
+
+  depositPricePath = data_dir / "CentralBankDepositData.xlsx" #"/content/drive/MyDrive/Young_Economist/CentralBankDepositData.xlsx" # from (B.1.1 CSV Central Bank retail intrest rates - deposits, outstanding amounts)
+  if os.path.exists(depositPricePath):
+    if debug6 == True:
+      print("WOOO depositPricePath EXISTS. GOSH!!")
+  if not os.path.exists(depositPricePath):
+    raise FileNotFoundError("depositPricePath.xlsx not found")
+  dfDepositPrices = pd.read_excel(depositPricePath)
+
+
+  dataOvernight = dfDepositPrices.iloc[0:, 1].astype(float)
+  dataReedemable = dfDepositPrices.iloc[0:, 2].astype(float)
+  dataAgreedShort = dfDepositPrices.iloc[0:, 3].astype(float)
+  dataAgreedLong = dfDepositPrices.iloc[0:, 4].astype(float)
+
+
+
+
+  start = dt.datetime(2000, 1, 1)
+  end = dt.datetime(2025, 1, 1)
+  # time = []
+  # for i in range((end - start).days):
+    # time.append(start + dt.timedelta(days=i))
+  extraTime = []
+  for i in range((end - (start - dt.timedelta(days=1))).days):
+    extraTime.append((start - dt.timedelta(days=1)) + dt.timedelta(days=i))
+
+  time_dt = pd.bdate_range(start=start, end=end) # Business (252/yr)
+  time = time_dt.to_pydatetime().tolist()
+
+
+  debug = False
+  optRun = False
+  alpha = 0.15
     #===================================================================
   # CONFIGURATION
   #=================================================================== 
@@ -5286,114 +5350,6 @@ import io # Import the io module
 
 # from google.colab import drive
 # drive.mount('/content/drive')
-folder = data_dir #"/content/drive/MyDrive/Young_Economist"
-
-
-if os.path.exists(folder):
-  if debug6 == True:
-    print("Hey, so, Young_Economist Exists lowk")
-if not os.path.exists(folder):
-  os.makedirs(folder)
-  print("huh")
-
-pathWoo = data_dir / "exampleFile.xlsx"
-# pathWoo = "/content/drive/MyDrive/Young_Economist/exampleFile.xlsx"
-if os.path.exists(pathWoo):
-  if debug6 == True:
-    print("WOOO IT EXISTS. GOSH!!")
-if not os.path.exists(pathWoo):
-  raise FileNotFoundError("ExampleFile.xlsx not found")
-df = pd.read_excel(pathWoo)
-
-
-listD10 = df.iloc[3, 1:].tolist()
-if debug6 == True:
-  print("Data from row with index 0, from column index 2 onwards:")
-print(listD10)
-if debug6 == True:
-  print(listD10)
-
-
-listD2 = df.iloc[4, 1:].tolist()
-
-
-print(listD2)
-
-
-
-
-listD6 = df.iloc[5, 1:].tolist()
-
-
-print(listD6)
-if debug6 == True:
-  print(listD2)
-  print("Second household")
-  print(listD6)
-
-housePriceLoc = "property_prices_data_RRPI.xlsx"
-# housePricePath = "/content/drive/MyDrive/Young_Economist" \
-housePricePath = data_dir / housePriceLoc
-if os.path.exists(housePricePath):
-  if debug6 == True:
-   print(f"WOOO {housePriceLoc} exists!")
-if not os.path.exists(housePricePath):
-  raise FileNotFoundError(f"{housePriceLoc}.xlsx not found")
-df_house_prices = pd.read_excel(housePricePath)
-
-
-dataHMR = df_house_prices.iloc[5:, 1].astype(float)
-if debug6 == True:
-  print(f"data for house prices, {dataHMR}")
-
-
-
-
-
-
-dataLand = df_house_prices.iloc[5:, 2].astype(float)
-if debug6 == True:
-  print(f"data for house prices (non HMR), {dataLand}")
-
-
-if debug12 == True:
-  print(f"data for house prices HMR: mean {np.nanmean(dataHMR)} std {np.nanstd(dataHMR)} [:50] {dataHMR[:50]}")
-  print(f"data for house prices non HMR: mean {np.nanmean(dataLand)} np.nanstd {np.nanstd(dataLand)} [:50] {dataLand[:50]}")
-
-
-depositPricePath = data_dir / "CentralBankDepositData.xlsx" #"/content/drive/MyDrive/Young_Economist/CentralBankDepositData.xlsx" # from (B.1.1 CSV Central Bank retail intrest rates - deposits, outstanding amounts)
-if os.path.exists(depositPricePath):
-  if debug6 == True:
-    print("WOOO depositPricePath EXISTS. GOSH!!")
-if not os.path.exists(depositPricePath):
-  raise FileNotFoundError("depositPricePath.xlsx not found")
-dfDepositPrices = pd.read_excel(depositPricePath)
-
-
-dataOvernight = dfDepositPrices.iloc[0:, 1].astype(float)
-dataReedemable = dfDepositPrices.iloc[0:, 2].astype(float)
-dataAgreedShort = dfDepositPrices.iloc[0:, 3].astype(float)
-dataAgreedLong = dfDepositPrices.iloc[0:, 4].astype(float)
-
-
-
-
-start = dt.datetime(2000, 1, 1)
-end = dt.datetime(2025, 1, 1)
-# time = []
-# for i in range((end - start).days):
-  # time.append(start + dt.timedelta(days=i))
-extraTime = []
-for i in range((end - (start - dt.timedelta(days=1))).days):
-  extraTime.append((start - dt.timedelta(days=1)) + dt.timedelta(days=i))
-
-time_dt = pd.bdate_range(start=start, end=end) # Business (252/yr)
-time = time_dt.to_pydatetime().tolist()
-
-
-debug = False
-optRun = False
-alpha = 0.15
 
 
 
