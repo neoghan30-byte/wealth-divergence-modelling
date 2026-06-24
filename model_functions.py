@@ -3,6 +3,7 @@ from pathlib import Path
 import psutil
 import os
 import functools
+import requests
 
 if os.path.exists("/content/drive/MyDrive"):
     project_dir = Path("/content/drive/MyDrive/Young_Economist")
@@ -26,10 +27,58 @@ else:
     project_dir = Path(__file__).parent 
 
 # 3. 
-g_project_dir = Path(r"G:\My Drive\Young_Economist")
+
 data_dir = project_dir / "data"
 chunk_dir = data_dir / "chunkResults"
 graph_dir = data_dir / "graphs"
+g_project_dir = Path(r"G:\My Drive\Young_Economist")
+
+def get_data():
+    """Downloads .pkl files from GitHub Releases if they aren't local."""
+    
+    has_pkl = list(chunk_dir.glob("*.pkl"))
+    has_comparable = list(chunk_dir.glob("comparable*"))
+    
+    if not (has_pkl and has_comparable):
+        print("Local data missing. Fetching from GitHub Release")
+        
+       
+        api_url = "https://api.github.com/repos/neoghan30-byte/wealth-divergence-modelling/releases/tags/v1.0-data"
+        
+        try:
+            response = requests.get(api_url)
+            response.raise_for_status() # Check for 404 errors
+            
+            assets = response.json().get("assets", [])
+            
+            for asset in assets:
+                name = asset["name"]
+                download_url = asset["browser_download_url"]
+                
+                # filter
+                if name.endswith(".pkl") or name.startswith("comparable"):
+                    file_path = chunk_dir / name
+                    Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+                    if not file_path.exists():
+                        print(f"⬇Downloading {name}")
+                        
+                        # Download in chunks 
+                        with requests.get(download_url, stream=True) as r:
+                            r.raise_for_status()
+                            with open(file_path, 'wb') as f:
+                                for chunk in r.iter_content(chunk_size=8192):
+                                    f.write(chunk)
+                                    
+            print("All required data downloaded successfully!")
+            
+        except requests.exceptions.HTTPError as e:
+            print(f"\n ERROR: Could not connect to GitHub")
+            print(f"Details: {e}")
+            sys.exit(1)
+    else:
+        print("Required data found locally. Skipping download.")
+
+get_data()
 # print(os.path.exists(r"C:\Users\eogha\AppData\Local\Google"))
 
 def validate_simulation(results):
@@ -5689,7 +5738,9 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
     # if debug4 == True:
       # print(f"Deposit daily ret = {dailyRetSimple}, and series len is {len(dailyRetSeries)}")
     return(dailyRetSimple)
-
+  start = dt.datetime(2000, 1, 1)
+  end = dt.datetime(2025, 1, 1)
+  
   monthLength = 30
   for assetClass in assets:
     for ticker in assets[assetClass]:
