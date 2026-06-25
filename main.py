@@ -101,7 +101,7 @@ else:
     BASELINE_V_NUM = SENSITIVITY_V_NUM + "_baseline"
     old_total_paths = old_inputParameters["Chunks"]["totalPaths"]
     old_inputParameters["Chunks"]["totalPaths"] = TARGET_PATHS
-    baseline_bundle_path = data_dir / f"Aggregated_State_baseline_{BASELINE_V_NUM}.pkl"
+    baseline_bundle_path = chunk_folder / f"Aggregated_State_baseline_{BASELINE_V_NUM}.pkl"
 
     m.runChunks(
         inputParameters=old_inputParameters,
@@ -126,8 +126,8 @@ else:
 
 
     print("=== 1. RE-AGGREGATING BASELINE FROM CHUNKS ===")
-    state_file = data_dir / f"assetState_{BASELINE_V_NUM}_5k.pkl"
-    res_file = data_dir / f"assetStateResults_{BASELINE_V_NUM}_5k.pkl"
+    state_file = chunk_folder / f"assetState_{BASELINE_V_NUM}_5k.pkl"
+    res_file = chunk_folder / f"assetStateResults_{BASELINE_V_NUM}_5k.pkl"
     # if state_file.exists(): state_file.unlink()
     # if res_file.exists(): res_file.unlink()
 
@@ -202,7 +202,7 @@ else:
         asset_level_res=assetResults
     )
 
-    baseline_bundle_path = data_dir / f"Aggregated_State_baseline_{BASELINE_V_NUM}.pkl"
+    baseline_bundle_path = chunk_folder / f"Aggregated_State_baseline_{BASELINE_V_NUM}.pkl"
     with open(baseline_bundle_path, "wb") as f:
         pickle.dump({
             "aggRes": aggRes,
