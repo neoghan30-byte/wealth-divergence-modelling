@@ -62,12 +62,23 @@ existing_baseline_chunks = [
     f for f in os.listdir(chunk_folder) 
     if re.match(rf"^Chunk_Results_{SENSITIVITY_V_NUM}_\d+_\d+\.pkl$", f)
 ]
-baseline_bundle_path = data_dir / f"Aggregated_State_baseline_{SENSITIVITY_V_NUM}.pkl"
 BASELINE_V_NUM2 = SENSITIVITY_V_NUM + "_baseline"
-baseline_bundle_path2 = data_dir / f"Aggregated_State_baseline_{BASELINE_V_NUM2}.pkl"
-if baseline_bundle_path.exists() or baseline_bundle_path2.exists(): 
-    print(f"=== LOADING CACHED BASELINE FROM {baseline_bundle_path.name} ===")
-    with open(baseline_bundle_path, "rb") as f:
+
+# Check possible locations
+path_downloaded = chunk_folder / f"Aggregated_State_baseline_{BASELINE_V_NUM2}.pkl"
+path_local = data_dir / f"Aggregated_State_baseline_{BASELINE_V_NUM2}.pkl"
+
+if path_downloaded.exists():
+    found_path = path_downloaded
+elif path_local.exists():
+    found_path = path_local
+else:
+    found_path = None
+
+
+if found_path: 
+    print(f"=== LOADING CACHED BASELINE FROM {found_path.name} ===")
+    with open(found_path, "rb") as f:
         bundle = pickle.load(f)
     
     aggRes = bundle["aggRes"]
@@ -78,9 +89,13 @@ if baseline_bundle_path.exists() or baseline_bundle_path2.exists():
     
     print(f"Baseline Terminal Wealth (80-100): {aggRes['portCumR']['80-100'][-1]:.4f}")
     print(f"Baseline Terminal Wealth (0-20):   {aggRes['portCumR']['0-20'][-1]:.4f}")
+    
+    BASELINE_V_NUM = BASELINE_V_NUM2
+
 elif len(existing_baseline_chunks) >= (TARGET_PATHS // old_inputParameters["Chunks"]["chunkSize"]):
     print(f"=== FOUND EXISTING SENSITIVITY BASELINE CHUNKS ===")
     BASELINE_V_NUM = SENSITIVITY_V_NUM
+
 else:
     print(f"=== GENERATING MATCHING BASELINE CHUNKS ===")
     BASELINE_V_NUM = SENSITIVITY_V_NUM + "_baseline"
