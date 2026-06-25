@@ -8034,6 +8034,7 @@ def main(V_num, inputParameters=None, testOneChunk=False, comparable_results=Non
         raise
 
   # Step 2: running baseline
+  
   try:
     t0 = tm.perf_counter()
     print("=== CHUNK SIMULATION ===")
@@ -8851,114 +8852,148 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
       scenario_coeffs = applyReturnShock(coeffsDict=coeffsDict, muScalar=muScalar, volScalar=volScalar)
     print(f"RAM: (applying scenario) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
     # Step 2: running baseline
-    try:
-      t0 = tm.perf_counter()
-      print("=== CHUNK SIMULATION ===")
-      # if debugLocal: V_num = "debug"
-      aggres = runChunks(inputParametersInitial, scenario_coeffs, scenario_fullCorr, scenario_tickers, cfg["assetWeights"], cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], cfg["corrAbleClasses"], cfg["households"], cfg["time"], returnsDict, cfg["folder"], V_num=f"{V_num}_{scenarioName}", testOneChunk=testOneChunk, master_seed=master_seed)
-      print(f"RAM: (running chunks) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
-      # aggres = runChunks(inputParametersInitial, scenario_coeffs, assetWeights, assets, assetsCompleted, assetsYahoo, corrAbleClasses, households, time, 
-      #                    returnsDict, folder, V_num=f"{V_num}_{scenarioName}", testOneChunk=testOneChunk)
-      # aggres
-    except Exception:
-      print(f"FAILED IN RUN CHUNKS")
-      traceback.print_exc()
-      stackprinter.show(style='lightbg')
-      raise
+    cache_name = f"Aggregated_State_{scenarioName}_{V_num}.pkl"
+    path_data = Path(cfg["folder"]) / cache_name         # Checks data_dir
+    path_chunks = Path(cfg["chunkFolder"]) / cache_name  # Checks chunkResults
 
+    if path_chunks.exists():
+        cache_file = path_chunks
+    elif path_data.exists():
+        cache_file = path_data
+    else:
+        cache_file = None
 
-    try:
-        print("=== ASSET AGGREGATION ===")
-
-        assetResults = aggregate_to_asset_paths(
-            nTotalPaths=inputParametersInitial["Chunks"]["totalPaths"],
-            V_num=f"{V_num}_{scenarioName}",
-        )
-        print(f"RAM: (asset aggregation) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
-    except Exception:
-        print("FAILED IN ASSET AGGREGATION")
-        traceback.print_exc()
-        stackprinter.show(style='lightbg')
-        raise
-
-
-    try:
-        print("=== PORTFOLIO AGGREGATION ===")
-
-        aggRes = portfolioAggregation(
-            assetWeights=cfg["assetWeights"],
-            fullSavedAssetRes=assetResults,
-            households=cfg["households"],
-            assetsCompleted=cfg["assetsCompleted"]
-        )
-        print(f"RAM: (port agg) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
-    except Exception:
-        print("FAILED IN PORTFOLIO AGGREGATION")
-        traceback.print_exc()
-        stackprinter.show(style='lightbg')
-        raise
-
-        # runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results, tablesNeeded=True, plots_to_generate=None):
-    try:
-        cache_file = Path(data_dir) / f"Aggregated_State_{scenarioName}_{V_num}.pkl"
-        if cache_file.exists():
-            print(f"Loading cached analysis: {cache_file}")
-
+    skip_scenario = False
+    if cache_file:
+        print(f"\n>>> LOADING CACHED SCENARIO: {cache_file.name} <<<")
+        try:
             with open(cache_file, "rb") as f:
                 cached = pickle.load(f)
-
             aggRes = cached["aggRes"]
             assetResults = cached["assetResults"]
             metric_results = cached["metric_results"]
-            # time = cached["time"]
-            households = cached["households"]
-            # sensitivityResults = cached["sensitivityResults"]
+            
             cached_sr = cached.get("sensitivityResults", {})
             if scenarioName in cached_sr:
                 sensitivityResults[scenarioName] = cached_sr[scenarioName]
             elif scenarioName in cached.get("comparable_results_new", {}):
                 sensitivityResults[scenarioName] = cached["comparable_results_new"][scenarioName]
-        else:
-            print("=== ANALYSIS ===")
+            else:
+                sensitivityResults = get_comparable_results(metric_results, scenarioName, inputParametersInitial, metric_config, scenario_coeffs, sensitivityResults, scenario)
+            skip_scenario = True
+        except Exception as e:
+            print(f"Failed to load cache: {e}. Proceeding with simulation.")
 
-            metric_results = get_metric_analysis(
-              chunk_folder=cfg["chunkFolder"],
-              coeffs_dict=scenario_coeffs,
-              assets_completed=cfg["assetsCompleted"],
-              asset_weights=cfg["assetWeights"],
-              households=cfg["households"],
-              time_hist=cfg["time"],
-              V_num=f"{V_num}_{scenarioName}",
-              percentile_bands=inputParametersInitial["percentile_bands"],
-              aggRes = aggRes,  # idk
-              asset_level_res = assetResults
+    # --- 2. ONLY RUN IF CACHE WAS NOT FOUND ---
+    if not skip_scenario:
+        try:
+            t0 = tm.perf_counter()
+            print("=== CHUNK SIMULATION ===")
+            # if debugLocal: V_num = "debug"
+            aggres = runChunks(inputParametersInitial, scenario_coeffs, scenario_fullCorr, scenario_tickers, cfg["assetWeights"], cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], cfg["corrAbleClasses"], cfg["households"], cfg["time"], returnsDict, cfg["folder"], V_num=f"{V_num}_{scenarioName}", testOneChunk=testOneChunk, master_seed=master_seed)
+            print(f"RAM: (running chunks) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
+            # aggres = runChunks(inputParametersInitial, scenario_coeffs, assetWeights, assets, assetsCompleted, assetsYahoo, corrAbleClasses, households, time, 
+            #                    returnsDict, folder, V_num=f"{V_num}_{scenarioName}", testOneChunk=testOneChunk)
+            # aggres
+        except Exception:
+            print(f"FAILED IN RUN CHUNKS")
+            traceback.print_exc()
+            stackprinter.show(style='lightbg')
+            raise
 
+
+        try:
+            print("=== ASSET AGGREGATION ===")
+
+            assetResults = aggregate_to_asset_paths(
+                nTotalPaths=inputParametersInitial["Chunks"]["totalPaths"],
+                V_num=f"{V_num}_{scenarioName}",
             )
-            print(f"RAM: (metric anaylsis) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
+            print(f"RAM: (asset aggregation) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
+        except Exception:
+            print("FAILED IN ASSET AGGREGATION")
+            traceback.print_exc()
+            stackprinter.show(style='lightbg')
+            raise
 
-            # print(f"WOOOOO results: {metric_results['house_cum_results']['house_cum_df']}")
-            sensitivityResults = get_comparable_results(metric_results, scenarioName, inputParametersInitial, metric_config, scenario_coeffs, sensitivityResults, scenario)
-            # if testOneChunk:
 
-            print(f"RAM: (sensitivity res) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
-            
-            print(f"[{scenarioName}] Chunk analysis complete. Saving to cache...")
-            with open(cache_file, 'wb') as f:
-                pickle.dump({
-                    'aggRes': aggRes,
-                    'assetResults': assetResults,
-                    'metric_results': metric_results,
-                    # "comparable_results_new": comparable_results_new,
-                    # 'time': time,
-                    'households': cfg["households"],
-                    'sensitivityResults': sensitivityResults 
-                }, f)
-        #    continue
-    except Exception:
-        print("FAILED IN ANALYSIS")
-        traceback.print_exc()
-        stackprinter.show(style='lightbg')
-        raise
+        try:
+            print("=== PORTFOLIO AGGREGATION ===")
+
+            aggRes = portfolioAggregation(
+                assetWeights=cfg["assetWeights"],
+                fullSavedAssetRes=assetResults,
+                households=cfg["households"],
+                assetsCompleted=cfg["assetsCompleted"]
+            )
+            print(f"RAM: (port agg) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
+        except Exception:
+            print("FAILED IN PORTFOLIO AGGREGATION")
+            traceback.print_exc()
+            stackprinter.show(style='lightbg')
+            raise
+
+            # runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results, tablesNeeded=True, plots_to_generate=None):
+        try:
+            cache_file = Path(data_dir) / f"Aggregated_State_{scenarioName}_{V_num}.pkl"
+            if cache_file.exists():
+                print(f"Loading cached analysis: {cache_file}")
+
+                with open(cache_file, "rb") as f:
+                    cached = pickle.load(f)
+
+                aggRes = cached["aggRes"]
+                assetResults = cached["assetResults"]
+                metric_results = cached["metric_results"]
+                # time = cached["time"]
+                households = cached["households"]
+                # sensitivityResults = cached["sensitivityResults"]
+                cached_sr = cached.get("sensitivityResults", {})
+                if scenarioName in cached_sr:
+                    sensitivityResults[scenarioName] = cached_sr[scenarioName]
+                elif scenarioName in cached.get("comparable_results_new", {}):
+                    sensitivityResults[scenarioName] = cached["comparable_results_new"][scenarioName]
+            else:
+                print("=== ANALYSIS ===")
+
+                metric_results = get_metric_analysis(
+                chunk_folder=cfg["chunkFolder"],
+                coeffs_dict=scenario_coeffs,
+                assets_completed=cfg["assetsCompleted"],
+                asset_weights=cfg["assetWeights"],
+                households=cfg["households"],
+                time_hist=cfg["time"],
+                V_num=f"{V_num}_{scenarioName}",
+                percentile_bands=inputParametersInitial["percentile_bands"],
+                aggRes = aggRes,  # idk
+                asset_level_res = assetResults
+
+                )
+                print(f"RAM: (metric anaylsis) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
+
+                # print(f"WOOOOO results: {metric_results['house_cum_results']['house_cum_df']}")
+                sensitivityResults = get_comparable_results(metric_results, scenarioName, inputParametersInitial, metric_config, scenario_coeffs, sensitivityResults, scenario)
+                # if testOneChunk:
+
+                print(f"RAM: (sensitivity res) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
+                
+                print(f"[{scenarioName}] Chunk analysis complete. Saving to cache...")
+                with open(cache_file, 'wb') as f:
+                    pickle.dump({
+                        'aggRes': aggRes,
+                        'assetResults': assetResults,
+                        'metric_results': metric_results,
+                        # "comparable_results_new": comparable_results_new,
+                        # 'time': time,
+                        'households': cfg["households"],
+                        'sensitivityResults': sensitivityResults 
+                    }, f)
+            #    continue
+        except Exception:
+            print("FAILED IN ANALYSIS")
+            traceback.print_exc()
+            stackprinter.show(style='lightbg')
+            raise
   try:
       print("=== GRAPHING ===")
 
