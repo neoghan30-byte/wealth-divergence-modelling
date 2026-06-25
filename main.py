@@ -62,8 +62,23 @@ existing_baseline_chunks = [
     f for f in os.listdir(chunk_folder) 
     if re.match(rf"^Chunk_Results_{SENSITIVITY_V_NUM}_\d+_\d+\.pkl$", f)
 ]
-
-if len(existing_baseline_chunks) >= (TARGET_PATHS // old_inputParameters["Chunks"]["chunkSize"]):
+baseline_bundle_path = data_dir / f"Aggregated_State_baseline_{SENSITIVITY_V_NUM}.pkl"
+BASELINE_V_NUM2 = SENSITIVITY_V_NUM + "_baseline"
+baseline_bundle_path2 = data_dir / f"Aggregated_State_baseline_{BASELINE_V_NUM2}.pkl"
+if baseline_bundle_path.exists() or baseline_bundle_path2.exists(): 
+    print(f"=== LOADING CACHED BASELINE FROM {baseline_bundle_path.name} ===")
+    with open(baseline_bundle_path, "rb") as f:
+        bundle = pickle.load(f)
+    
+    aggRes = bundle["aggRes"]
+    assetResults = bundle["assetResults"]
+    metric_results_5k = bundle["metric_results"]
+    fullCorr = bundle["fullCorr"]
+    allTickersOrdered = bundle["allTickersOrdered"]
+    
+    print(f"Baseline Terminal Wealth (80-100): {aggRes['portCumR']['80-100'][-1]:.4f}")
+    print(f"Baseline Terminal Wealth (0-20):   {aggRes['portCumR']['0-20'][-1]:.4f}")
+elif len(existing_baseline_chunks) >= (TARGET_PATHS // old_inputParameters["Chunks"]["chunkSize"]):
     print(f"=== FOUND EXISTING SENSITIVITY BASELINE CHUNKS ===")
     BASELINE_V_NUM = SENSITIVITY_V_NUM
 else:
@@ -94,22 +109,7 @@ else:
     old_inputParameters["Chunks"]["totalPaths"] = old_total_paths
 
 
-baseline_bundle_path = data_dir / f"Aggregated_State_baseline_{BASELINE_V_NUM}.pkl"
-if baseline_bundle_path.exists():
-    print(f"=== LOADING CACHED BASELINE FROM {baseline_bundle_path.name} ===")
-    with open(baseline_bundle_path, "rb") as f:
-        bundle = pickle.load(f)
-    
-    aggRes = bundle["aggRes"]
-    assetResults = bundle["assetResults"]
-    metric_results_5k = bundle["metric_results"]
-    fullCorr = bundle["fullCorr"]
-    allTickersOrdered = bundle["allTickersOrdered"]
-    
-    print(f"Baseline Terminal Wealth (80-100): {aggRes['portCumR']['80-100'][-1]:.4f}")
-    print(f"Baseline Terminal Wealth (0-20):   {aggRes['portCumR']['0-20'][-1]:.4f}")
 
-else:
     print("=== 1. RE-AGGREGATING BASELINE FROM CHUNKS ===")
     state_file = data_dir / f"assetState_{BASELINE_V_NUM}_5k.pkl"
     res_file = data_dir / f"assetStateResults_{BASELINE_V_NUM}_5k.pkl"
@@ -144,7 +144,8 @@ else:
 
     print(f"Baseline Terminal Wealth (80-100): {aggRes['portCumR']['80-100'][-1]:.4f}")
     print(f"Baseline Terminal Wealth (0-20):   {aggRes['portCumR']['0-20'][-1]:.4f}")
-
+    baseline_bundle_path = baseline_bundle_path2
+    BASELINE_V_NUM = BASELINE_V_NUM2
 
 
     # =====================================================================
