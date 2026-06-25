@@ -1065,8 +1065,9 @@ def run_combined_analysis(
     # STREAMING PASS
     # ------------------------------------------------------------------
     chunk_files = _sorted_chunk_files(chunk_folder, V_num)
-    print(f"\n[DEBUG] TARGET FOLDER: {os.path.abspath(chunk_folder)}")
-    print(f"[DEBUG] FOUND {len(chunk_files)}, in run_combined, MATCHING FILES: {chunk_files}\n")
+    if debugFolder:
+      print(f"\n[DEBUG] TARGET FOLDER: {os.path.abspath(chunk_folder)}")
+      print(f"[DEBUG] FOUND {len(chunk_files)}, in run_combined, MATCHING FILES: {chunk_files}\n")
     if not chunk_files:
         raise FileNotFoundError(f"No Chunk_Results_*.pkl files found in {chunk_folder}")
     if verbose:
@@ -3085,9 +3086,9 @@ def runGraphs(aggRes, assetResults, time, households, graph_dir, metric_results,
       results = metric_results_streamlined["results"]
   else:
       results = metric_results_streamlined
-  
-  print("[DEBUG] top-level keys:", metric_results_streamlined.keys())
-  print("[DEBUG] results alias keys:", results.keys())
+  if debugFolder:
+    print("[DEBUG] top-level keys:", metric_results_streamlined.keys())
+    print("[DEBUG] results alias keys:", results.keys())
   if "results" in metric_results_streamlined:
       print(metric_results_streamlined["results"].keys())
   else:
@@ -3360,6 +3361,7 @@ useLogs = True
 useCholesky = False
 useBlending = True
 hardCrash = False
+debugFolders = False
 import logging
 
 from matplotlib.ticker import PercentFormatter
@@ -5004,6 +5006,7 @@ debugBus = False
 debug14 = False
 debugVolatility3 = False
 debugAggregation = False
+debugFolder = False
 import pickle
 alreadyRun = 12
 daysPerYear = 365
@@ -5715,19 +5718,24 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
 
 
   # minLen = min(len(v) for v in closeDict.values())
-  print(f"[DEBUG] closeDict keys ({len(closeDict)}): {sorted(closeDict.keys())}")
+  if debugFolder:
+    print(f"[DEBUG] closeDict keys ({len(closeDict)}): {sorted(closeDict.keys())}")
   all_daily_candidates = []
   for assetClass in assets:
       for ticker in assets[assetClass]:
           if assetClass in assetsCompleted and ticker in assetsCompleted[assetClass] and assetClass in corrAbleClasses:
               all_daily_candidates.append((assetClass, ticker))
-  print(f"[DEBUG] eligible (assetClass,ticker) pairs ({len(all_daily_candidates)}): {all_daily_candidates}")
+  if debugFolder:
+    print(f"[DEBUG] eligible (assetClass,ticker) pairs ({len(all_daily_candidates)}): {all_daily_candidates}")
+
   missing = [(ac, t) for ac, t in all_daily_candidates if t not in closeDict]
-  print(f"[DEBUG] eligible but missing from closeDict: {missing}")
+  if debugFolder:
+    print(f"[DEBUG] eligible but missing from closeDict: {missing}")
   for ac, t in missing:
     has_key = 'histRet' in coeffsDict.get(ac, {}).get(t, {})
     val = coeffsDict.get(ac, {}).get(t, {}).get('histRet', '<no key>')
-    print(f"[DEBUG]   {ac}/{t}: has histRet key={has_key}, value type={type(val)}")
+    if debugFolder:
+        print(f"[DEBUG]   {ac}/{t}: has histRet key={has_key}, value type={type(val)}")
   minLen = min(len(v) for v in closeDict.values()) if closeDict else 0
   # useIndependentNoise = (minLen < 2) or (len(closeDict) < 2)
   useIndependentNoise = (minLen < 100) or (len(closeDict) < 2)
@@ -5762,7 +5770,8 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
       dailyTickers = []
       corrDaily = np.array([[1.0]])
       allReturns = pd.DataFrame()
-  print(f"[DEBUG] dailyTickers={len(dailyTickers)}, allReturns.empty={allReturns.empty if 'allReturns' in dir() else 'undefined'}")
+  if debugFolder:
+    print(f"[DEBUG] dailyTickers={len(dailyTickers)}, allReturns.empty={allReturns.empty if 'allReturns' in dir() else 'undefined'}")
   monthlyData = {}
   for assetClass in ['Property', 'Deposits']:
       if assetClass in coeffsDict:
@@ -5791,7 +5800,8 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
   #  Only create DataFrame if have data
   if monthlyData:
       dfMonthly = pd.DataFrame(monthlyData).dropna()
-      print(f"[DEBUG] dfMonthly.shape={dfMonthly.shape}, len(dfMonthly)={len(dfMonthly)}")
+      if debugFolder:
+        print(f"[DEBUG] dfMonthly.shape={dfMonthly.shape}, len(dfMonthly)={len(dfMonthly)}")
       if len(dfMonthly) < 2:
           monthlyTickers = []
           corrMonthly = np.array([[1.0]])
@@ -8852,7 +8862,8 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
       scenario_coeffs = applyReturnShock(coeffsDict=coeffsDict, muScalar=muScalar, volScalar=volScalar)
     print(f"RAM: (applying scenario) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
     # Step 2: running baseline
-    cache_name = f"Aggregated_State_{scenarioName}_{V_num}.pkl"
+    safe_scenarioName = scenarioName.replace("%", ".")
+    cache_name = f"Aggregated_State_{safe_scenarioName}_{V_num}.pkl"
     path_data = Path(cfg["folder"]) / cache_name         # Checks data_dir
     path_chunks = Path(cfg["chunkFolder"]) / cache_name  # Checks chunkResults
 
@@ -8890,7 +8901,7 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
             t0 = tm.perf_counter()
             print("=== CHUNK SIMULATION ===")
             # if debugLocal: V_num = "debug"
-            aggres = runChunks(inputParametersInitial, scenario_coeffs, scenario_fullCorr, scenario_tickers, cfg["assetWeights"], cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], cfg["corrAbleClasses"], cfg["households"], cfg["time"], returnsDict, cfg["folder"], V_num=f"{V_num}_{scenarioName}", testOneChunk=testOneChunk, master_seed=master_seed)
+            aggres = runChunks(inputParametersInitial, scenario_coeffs, scenario_fullCorr, scenario_tickers, cfg["assetWeights"], cfg["assets"], cfg["assetsCompleted"], cfg["assetsYahoo"], cfg["corrAbleClasses"], cfg["households"], cfg["time"], returnsDict, cfg["folder"], V_num=f"{V_num}_{safe_scenarioName}", testOneChunk=testOneChunk, master_seed=master_seed)
             print(f"RAM: (running chunks) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
             # aggres = runChunks(inputParametersInitial, scenario_coeffs, assetWeights, assets, assetsCompleted, assetsYahoo, corrAbleClasses, households, time, 
             #                    returnsDict, folder, V_num=f"{V_num}_{scenarioName}", testOneChunk=testOneChunk)
@@ -8907,7 +8918,7 @@ def runSensitivityTests(inputParameters, scenarios, metric_config, V_num, testOn
 
             assetResults = aggregate_to_asset_paths(
                 nTotalPaths=inputParametersInitial["Chunks"]["totalPaths"],
-                V_num=f"{V_num}_{scenarioName}",
+                V_num=f"{V_num}_{safe_scenarioName}",
             )
             print(f"RAM: (asset aggregation) {psutil.Process().memory_info().rss / 1024**3:.2f} GB")
         except Exception:
