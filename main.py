@@ -31,7 +31,7 @@ graph_dir = Path(cfg["graph_dir"])
 chunk_folder = cfg["chunkFolder"]
 
 print("=== 0. EXTRACTING CONFIGURATION FROM SENSITIVITY TESTS ===")
-comp_results_path = data_dir / f"comparable_results_{SENSITIVITY_V_NUM}"
+comp_results_path = chunk_folder / f"comparable_results_{SENSITIVITY_V_NUM}"
 master_results = safe_load(comp_results_path)
 comp_dict = master_results.get("comparable_results", master_results)
 
