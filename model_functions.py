@@ -11,7 +11,7 @@ else:
     project_dir = Path(r"G:\My Drive\Young_Economist")
 print(f"Hello WOrld")
 use_GoogleDrive = False 
-use_colab = False
+
 # 2. DEFINE THE PATHS
 if use_GoogleDrive:
     
@@ -19,7 +19,7 @@ if use_GoogleDrive:
     # data_dir = Path(r"G:\My Drive\Young_Economist")
     if os.path.exists("/content/drive/MyDrive"):
         project_dir = Path("/content/drive/MyDrive/Young_Economist")
-        use_colab = True
+        
     else:
         project_dir = Path(r"G:\My Drive\Young_Economist")
 else:
@@ -3565,7 +3565,7 @@ def setup():
 
   listD10 = df.iloc[3, 1:].tolist()
   if debug6 == True:
-    print("Data from row with index 0, from column index 2 onwards:")
+    print("Data from row with index 3, from column index 1 onwards:")
     print(listD10)
   if debug6 == True:
     print(listD10)
@@ -5836,7 +5836,7 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
         n_d = len(dailyTickers)
         n_m = len(monthlyTickers)
         corrCross = np.zeros((n_d, n_m))
-  #  SAFE DEFAULT for empty case
+  # safe default for empty case
   nTotal = n_d + n_m
   if nTotal == 0:
       nTotal = 1
@@ -5844,7 +5844,7 @@ def getCoeffs(assets, assetsCompleted, assetsYahoo, assetWeights, households, ti
       L = np.array([[1.0]])
       allTickersOrdered = []
   else:
-      fullCorr = np.eye(nTotal)  # Start with identity
+      fullCorr = np.eye(nTotal)  # initilaise with identity
 
       if n_d > 0:
           if len(dailyTickers) > 1:
